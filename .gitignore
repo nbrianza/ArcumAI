@@ -1,0 +1,35 @@
+# --- PYTHON & SISTEMA ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+Thumbs.db
+desktop.ini
+.DS_Store
+.files/
+
+
+# --- DATI CLIENTI (Privacy Assoluta) ---
+data_nuovi/
+data_archivio/
+data_error/
+data_duplicati/
+input_utente/
+
+# --- MEMORIA AI (Database) ---
+chroma_db/
+storage_bm25/
+
+# --- LOGS ---
+logs/
+*.log
+
+# --- SICUREZZA ---
+users.json      # Ignora il file con le password hashate
+.env            # Se mai userai chiavi API in futuro
+
+# --- IDE ---
+.vscode/
+.idea/
