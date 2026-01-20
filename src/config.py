@@ -10,10 +10,10 @@ from llama_index.core.node_parser import SentenceSplitter
 PROFILE = "LOW_RESOURCE" 
 
 if PROFILE == "LOW_RESOURCE":
-    LLM_MODEL_NAME = "llama3.2:1b"
+    LLM_MODEL_NAME = "llama3.2:3b"
     EMBED_MODEL_NAME = "BAAI/bge-m3"
-    CONTEXT_WINDOW = 2048
-    REQUEST_TIMEOUT = 300.0
+    CONTEXT_WINDOW = 4096
+    REQUEST_TIMEOUT = 600.0
     CHUNK_SIZE = 512
     CHUNK_OVERLAP = 64
     RETRIEVER_TOP_K = 5
