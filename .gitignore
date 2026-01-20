@@ -33,3 +33,9 @@ users.json      # Ignora il file con le password hashate
 # --- IDE ---
 .vscode/
 .idea/
+
+# Ignora tutti i file che finiscono con .pdf SOLO dentro la cartella "doc"
+doc/*.pdf
+
+# Ignora i file temporanei SOLO dentro la cartella "doc"
+doc/~$*
