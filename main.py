@@ -41,10 +41,11 @@ def get_db_components():
     index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
     return index, chroma_collection
 
-def process_single_file(file_path, index, collection):
+def process_single_file(file_path, index, collection, counter_str):
     """
     Processa un singolo file.
     Ritorna True se processato con successo, False se saltato/errore.
+    counter_str: stringa formattata (es. "[1/656]") per il logging.
     """
     filename = file_path.name
     
@@ -55,7 +56,7 @@ def process_single_file(file_path, index, collection):
     # Check rapido nel DB se l'hash esiste già
     existing = collection.get(where={"file_hash": current_hash}, limit=1, include=["metadatas"])
     if existing and existing["ids"]:
-        log.info(f"   ♻️  DUPLICATO RILEVATO (Hash esistente). Sposto in Duplicati.")
+        log.info(f"{counter_str} ♻️  DUPLICATO RILEVATO (Hash esistente). Sposto in Duplicati.")
         sposta_file_con_struttura(file_path, INBOX_DIR, DUPLICATES_DIR)
         return False
 
@@ -82,17 +83,17 @@ def process_single_file(file_path, index, collection):
             docs = reader.load_data(file_path)
         else:
             # Fallback di sicurezza
-            log.warning(f"   ⚠️ Estensione {ext} non gestita esplicitamente. Salto.")
+            log.warning(f"{counter_str} ⚠️ Estensione {ext} non gestita esplicitamente. Salto.")
             return False
 
     except Exception as e:
-        log.error(f"   ❌ Errore lettura file ({ext}): {e}")
+        log.error(f"{counter_str} ❌ Errore lettura file ({ext}): {e}")
         # Se il reader fallisce (file corrotto), spostiamo in Error
         sposta_file_con_struttura(file_path, INBOX_DIR, ERROR_DIR)
         return False
 
     if not docs:
-        log.warning("   ⚠️ File letto ma nessun contenuto estratto (Vuoto?).")
+        log.warning(f"{counter_str} ⚠️ File letto ma nessun contenuto estratto (Vuoto?).")
         sposta_file_con_struttura(file_path, INBOX_DIR, ERROR_DIR)
         return False
 
@@ -123,15 +124,18 @@ def process_single_file(file_path, index, collection):
         # Lo splitter usa i chunk_size definiti in config.py
         nodes = Settings.text_splitter.get_nodes_from_documents(docs)
         
+        # (Opzionale: scommenta per vedere se si blocca qui sulla CPU)
+        log.info(f"{counter_str} ⏳ Generazione Embeddings ({len(nodes)} chunks)...")
+
         # Inseriamo i nodi (evita l'errore 'insert_documents')
         index.insert_nodes(nodes)
         
-        log.info(f"   ✅ Indicizzato: {filename} ({len(nodes)} nodi)")
+        log.info(f"{counter_str} ✅ INDICIZZATO: {filename} ({len(nodes)} nodi)")
         sposta_file_con_struttura(file_path, INBOX_DIR, ARCHIVE_DIR)
         return True
         
     except Exception as e:
-        log.error(f"   ❌ Errore scrittura DB: {e}")
+        log.error(f"{counter_str} ❌ Errore scrittura DB: {e}")
         # Non spostiamo in error qui, perché potrebbe essere un errore temporaneo del DB
         return False
 
@@ -158,27 +162,28 @@ def main():
         if f.is_file() and f.name not in junk_files and not f.name.startswith("._") and f.suffix in WATCH_EXTENSIONS
     ]
 
+    total_files = len(files_to_process)
+
     if not files_to_process:
         log.info("ℹ️ Nessun file da processare.")
         return
 
-    log.info(f"📄 Trovati {len(files_to_process)} file da elaborare.")
+    log.info(f"📄 Trovati {total_files} file da elaborare.")
 
     # --- LOOP DI ELABORAZIONE ---
     processed_count = 0
-    total_files = len(files_to_process)
     
     for i, file_path in enumerate(files_to_process, 1):
-        # Print per feedback visivo nel terminale
-        print(f"[{i}/{total_files}] Elaborazione: {file_path.name}...", end="\r")
+        # Stringa contatore per i log
+        counter_str = f"[{i}/{total_files}]"
         
         # Skip file vuoti (0 byte)
         if file_path.stat().st_size == 0:
-            log.warning(f"   ⚠️ FILE VUOTO: {file_path.name}")
+            log.warning(f"{counter_str} ⚠️ FILE VUOTO: {file_path.name}")
             sposta_file_con_struttura(file_path, INBOX_DIR, ERROR_DIR)
             continue
 
-        if process_single_file(file_path, index, collection):
+        if process_single_file(file_path, index, collection, counter_str):
             processed_count += 1
             
         # Garbage Collection proattivo per tenere bassa la RAM
@@ -204,7 +209,7 @@ def main():
     
     # --- PULIZIA FINALE ---
     pulisci_cartelle_vuote(INBOX_DIR)
-    log.info(f"\n🏁 Finito. Processati {processed_count} file.")
+    log.info(f"\n🏁 Finito. Processati {processed_count}/{total_files} file.")
 
 if __name__ == "__main__":
     main()

@@ -74,6 +74,7 @@ def init_settings():
 TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 POPPLER_PATH = r"C:\Program Files\Poppler\Library\bin"
 OCR_ENABLED = Path(TESSERACT_CMD).exists() and Path(POPPLER_PATH).exists()
+#OCR_ENABLED = False # <--- Forza OFF per l'ingestion massiva senza OCR
 
 # --- 6. CONFIGURAZIONE WATCHER ---
 WATCH_EXTENSIONS = {
