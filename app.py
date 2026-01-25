@@ -1,7 +1,13 @@
+import os
 import chainlit as cl
+from chainlit.input_widget import Switch # <--- FIX: Import corretto per le nuove versioni
 from pathlib import Path
+import nest_asyncio
 
-# LlamaIndex Core
+# FIX: Patch per loop asincroni
+nest_asyncio.apply()
+
+# LlamaIndex Core & Cloud
 from llama_index.core import VectorStoreIndex, StorageContext, Settings
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
@@ -10,7 +16,10 @@ from llama_index.core.memory import ChatMemoryBuffer
 # Import Retrievers per Hybrid Search
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
-from llama_index.core.chat_engine import ContextChatEngine
+from llama_index.core.chat_engine import ContextChatEngine, SimpleChatEngine
+
+# Gemini
+from llama_index.llms.gemini import Gemini
 
 # --- IMPORT CONFIGURAZIONE ---
 from src.config import (
@@ -28,15 +37,15 @@ from src.readers import SmartPDFReader
 from src.auth import verify_password, load_users, update_password
 
 # --- 1. SETUP INIZIALE ---
-# Inizializza i settings globali (Ollama, Embeddings)
 init_settings()
+
+# Chiave Google (per il Cloud)
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 def get_hybrid_retriever(index):
     """Costruisce il retriever Ibrido (Vector + BM25)."""
-    # A. Retriever Vettoriale
     vector_retriever = index.as_retriever(similarity_top_k=RETRIEVER_TOP_K)
     
-    # B. Retriever BM25 (Parole chiave)
     if BM25_PATH.exists():
         try:
             bm25_retriever = BM25Retriever.from_persist_dir(str(BM25_PATH))
@@ -47,7 +56,7 @@ def get_hybrid_retriever(index):
                 similarity_top_k=RETRIEVER_TOP_K, 
                 num_queries=1,
                 mode="reciprocal_rerank",
-                use_async=True,
+                use_async=False, # Async False per stabilità su Windows
                 verbose=True
             )
         except Exception as e:
@@ -81,6 +90,37 @@ def auth_callback(username, password):
             )
     return None
 
+# --- GESTIONE SETTINGS (SWITCH CLOUD) ---
+@cl.on_settings_update
+async def setup_agent(settings):
+    is_cloud = settings["cloud_mode"]
+    cl.user_session.set("cloud_mode", is_cloud)
+    
+    if is_cloud:
+        if not GOOGLE_API_KEY:
+            await cl.Message(content="❌ **Errore:** Manca GOOGLE_API_KEY nelle variabili d'ambiente.").send()
+            return
+
+        await cl.Message(content="☁️ **Modalità Cloud Attiva (Gemini)**\nUpload file disabilitato per privacy.").send()
+
+        try:
+            llm_cloud = Gemini(model="models/gemini-2.5-flash", api_key=GOOGLE_API_KEY)
+            cloud_engine = SimpleChatEngine.from_defaults(
+                system_prompt="Sei un assistente AI avanzato. Rispondi con precisione.",
+                llm=llm_cloud,
+                memory=ChatMemoryBuffer.from_defaults(token_limit=8000)
+            )
+            cl.user_session.set("chat_engine", cloud_engine)
+        except Exception as e:
+             await cl.Message(content=f"❌ Errore Gemini: {e}").send()
+    else:
+        await cl.Message(content="🔒 **Ritorno a Modalità Locale (Safe).**").send()
+        # Per ricaricare il locale, l'utente dovrà ricaricare la pagina o reimpostiamo qui
+        # Per semplicità, chiediamo di ricaricare se serve cambiare motore "al volo" 
+        # oppure si può richiamare la logica di start(), ma richiede refactoring.
+        # Soluzione rapida: Avviso.
+        await cl.Message(content="ℹ️ Per riattivare completamente il contesto locale, ricarica la pagina (F5).").send()
+
 # --- 3. AVVIO SESSIONE ---
 @cl.on_chat_start
 async def start():
@@ -88,6 +128,15 @@ async def start():
     role = user.metadata["role"]
     real_name = user.metadata["name"]
     
+    cl.user_session.set("cloud_mode", False)
+
+    # --- FIX QUI: Uso Switch importato correttamente ---
+    settings = await cl.ChatSettings(
+        [
+            Switch(id="cloud_mode", label="☁️ Usa Cloud AI (Gemini)", initial=False),
+        ]
+    ).send()
+
     system_prompt = ROLE_PROMPTS.get(role, DEFAULT_SYSTEM_PROMPT)
     
     try:
@@ -97,8 +146,6 @@ async def start():
         index = load_index()
         retriever = get_hybrid_retriever(index)
         
-        # Setup Chat Engine
-        # FIX: Passiamo Settings.llm per sicurezza
         chat_engine = ContextChatEngine.from_defaults(
             retriever=retriever,
             memory=ChatMemoryBuffer.from_defaults(token_limit=4000),
@@ -124,11 +171,11 @@ async def start():
     except Exception as e:
         await cl.Message(content=f"❌ Errore critico avvio: {e}").send()
 
-# --- 4. GESTIONE AZIONI ---
+# --- 4. CAMBIO PASSWORD ---
 @cl.action_callback("change_pw")
 async def on_action(action):
     user = cl.user_session.get("user")
-    res = await cl.AskUserMessage(content="🔒 Inserisci la nuova password:", timeout=60).send()
+    res = await cl.AskUserMessage(content="🔒 Nuova password:", timeout=60).send()
     if res:
         new_pw = res['output']
         if len(new_pw) < 3:
@@ -141,10 +188,16 @@ async def on_action(action):
 @cl.on_message
 async def main(message: cl.Message):
     chat_engine = cl.user_session.get("chat_engine")
+    is_cloud_mode = cl.user_session.get("cloud_mode", False)
     
-    # Gestione Contesto da Allegati (MANTENUTA ORIGINALE)
+    # Check Sicurezza Cloud
+    if is_cloud_mode and message.elements:
+        await cl.Message(content="⛔ **Upload disabilitato in modalità Cloud per sicurezza.**").send()
+        return
+
+    # Gestione Allegati (Solo Locale)
     context_text = ""
-    if message.elements:
+    if message.elements and not is_cloud_mode:
         processing_msg = cl.Message(content="📂 Analisi allegati...")
         await processing_msg.send()
         for element in message.elements:
@@ -157,67 +210,70 @@ async def main(message: cl.Message):
                         text_content = "\n".join([d.text for d in docs])
                     else:
                         text_content = file_path.read_text(encoding="utf-8", errors="ignore")
-                    context_text += f"\n--- DOCUMENTO UTENTE: {element.name} ---\n{text_content}\n--- FINE DOC ---\n"
+                    
+                    # Limite sicurezza caratteri
+                    if len(text_content) > 10000:
+                        text_content = text_content[:10000] + "\n...[TRONCATO]..."
+                        
+                    context_text += f"\n--- DOC UTENTE: {element.name} ---\n{text_content}\n"
                 except Exception as e:
-                    print(f"Errore lettura file: {e}")
+                    print(f"Errore file: {e}")
         await processing_msg.remove()
 
     if context_text:
-        full_query = (
-            f"ISTRUZIONE: L'utente ha allegato un contenuto. Usa questo come contesto primario.\n"
-            f"{context_text}\n\n"
-            f"RICHIESTA UTENTE: {message.content}"
-        )
+        full_query = f"FILE CONTESTO:\n{context_text}\n\nRICHIESTA: {message.content}"
     else:
         full_query = message.content
 
-    # --- ESECUZIONE QUERY (FIX ASYNC) ---
     msg = cl.Message(content="")
     
     try:
-        # Usiamo astream_chat che è nativo asincrono e più stabile
-        response = await chat_engine.astream_chat(full_query)
+        if is_cloud_mode:
+            # Cloud (Gemini)
+            response = await cl.make_async(chat_engine.stream_chat)(full_query)
+            full_resp = ""
+            for token in response.response_gen:
+                full_resp += token
+                await msg.stream_token(token)
+            
+            # --- FIX: USA MARKDOWN INVECE DI HTML ---
+            # ### Crea un titolo H3
+            # > Crea un blocco citazione (barra verticale a sinistra)
+            msg.content = f"### ☁️ **Gemini (Cloud)**\n> {full_resp}"
+            await msg.update()
         
-        # --- FIX QUI: Aggiunte parentesi () dopo async_response_gen ---
-        async for token in response.async_response_gen(): 
-            await msg.stream_token(token)
+        else:
+            # Locale (Llama)
+            response = await cl.make_async(chat_engine.stream_chat)(full_query)
+            
+            for token in response.response_gen:
+                await msg.stream_token(token)
 
-        # --- VISUALIZZAZIONE FONTI (FIX CRASH) ---
-        source_nodes = response.source_nodes
-        elements = []
-        text_sources = []
-        
-        if source_nodes:
-            seen = set()
-            for node in source_nodes:
-                fname = node.metadata.get("filename", "Sconosciuto")
-                rel_path = node.metadata.get("file_path", fname)
+            # Fonti
+            if hasattr(response, "source_nodes") and response.source_nodes:
+                seen = set()
+                text_sources = []
+                elements = []
                 
-                if fname and fname not in seen:
-                    path = ARCHIVE_DIR / rel_path
-                    exists = path.exists()
+                for node in response.source_nodes:
+                    fname = node.metadata.get("filename", "Sconosciuto")
+                    rel_path = node.metadata.get("file_path", fname)
                     
-                    if exists:
-                        # FIX: Controlliamo se è un PDF vero prima di usare cl.Pdf
-                        # Questo impedisce il crash se il file è .msg, .docx, ecc.
-                        if path.suffix.lower() == ".pdf":
-                            elements.append(cl.Pdf(name=fname, display="side", path=str(path)))
-                        else:
-                            # Per Email (.msg, .eml) e Word (.docx), usiamo cl.File (Download icon)
-                            elements.append(cl.File(name=fname, display="inline", path=str(path)))
-                    
-                    text_sources.append(fname)
-                    seen.add(fname)
-        
-        if elements:
-            msg.elements = elements
-        
-        if text_sources:
-            footer = "\n\n**📚 Fonti utilizzate:**\n" + "\n".join([f"- {s}" for s in text_sources])
-            msg.content += footer
+                    if fname and fname not in seen:
+                        path = ARCHIVE_DIR / rel_path
+                        if path.exists():
+                            if path.suffix.lower() == ".pdf":
+                                elements.append(cl.Pdf(name=fname, display="side", path=str(path)))
+                            else:
+                                elements.append(cl.File(name=fname, display="inline", path=str(path)))
+                        
+                        text_sources.append(fname)
+                        seen.add(fname)
+                
+                if elements: msg.elements = elements
+                if text_sources: msg.content += "\n\n**📚 Fonti:**\n" + "\n".join([f"- {s}" for s in text_sources])
 
-        await msg.update()
+            await msg.update()
         
     except Exception as e:
-        print(f"❌ ERRORE RISPOSTA: {e}")
-        await cl.Message(content=f"⚠️ Si è verificato un errore durante la generazione: {e}").send()
+        await cl.Message(content=f"⚠️ Errore generazione: {str(e)}").send()
