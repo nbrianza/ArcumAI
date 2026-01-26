@@ -25,7 +25,7 @@ from llama_index.llms.gemini import Gemini
 # Import dai tuoi moduli src
 from src.config import (
     CHROMA_PATH, COLLECTION_NAME, BM25_PATH, ARCHIVE_DIR, 
-    DEFAULT_SYSTEM_PROMPT, RETRIEVER_TOP_K, init_settings
+    DEFAULT_SYSTEM_PROMPT, CUSTOM_CONTEXT_TEMPLATE, RETRIEVER_TOP_K, init_settings
 )
 from src.readers import SmartPDFReader
 
@@ -39,13 +39,35 @@ if not ARCHIVE_DIR.exists():
 app.add_static_files('/documents', str(ARCHIVE_DIR))
 
 # --- FUNZIONI HELPER BACKEND ---
-def get_hybrid_retriever(index):
+
+# 1. HELPER RICERCA FILE (Per link robusti)
+def find_relative_path(filename: str) -> str:
+    """Cerca il file nelle sottocartelle per generare link corretti"""
+    try:
+        matches = list(ARCHIVE_DIR.rglob(filename))
+        if matches:
+            rel_path = matches[0].relative_to(ARCHIVE_DIR)
+            return str(rel_path).replace('\\', '/')
+    except Exception: pass
+    return filename
+
+# 2. MOTORE RAG (Pesante - Per domande sui documenti)
+def load_rag_engine():
+    """Carica il motore che legge il database (Lento ma preciso sui file)"""
+    db = chromadb.PersistentClient(path=str(CHROMA_PATH))
+    chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
+    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
+    
+    # Retriever Ibrido
     vector_retriever = index.as_retriever(similarity_top_k=RETRIEVER_TOP_K)
+    retriever = vector_retriever
     if BM25_PATH.exists():
         try:
             bm25_retriever = BM25Retriever.from_persist_dir(str(BM25_PATH))
             bm25_retriever.similarity_top_k = RETRIEVER_TOP_K
-            return QueryFusionRetriever(
+            retriever = QueryFusionRetriever(
                 [vector_retriever, bm25_retriever],
                 similarity_top_k=RETRIEVER_TOP_K, 
                 num_queries=1,
@@ -53,27 +75,29 @@ def get_hybrid_retriever(index):
                 use_async=False, 
                 verbose=True
             )
-        except: return vector_retriever
-    return vector_retriever
+        except: pass
 
-def load_local_engine():
-    db = chromadb.PersistentClient(path=str(CHROMA_PATH))
-    chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
-    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
-    retriever = get_hybrid_retriever(index)
-    
+    # Usa il template permissivo definito in config.py
     return ContextChatEngine.from_defaults(
         retriever=retriever,
         memory=ChatMemoryBuffer.from_defaults(token_limit=4000),
         system_prompt=DEFAULT_SYSTEM_PROMPT,
+        context_template=CUSTOM_CONTEXT_TEMPLATE, # Fondamentale per non bloccare risposte miste
         llm=Settings.llm 
     )
 
+# 3. MOTORE CHAT SEMPLICE (Veloce - Per saluti/matematica)
+def load_simple_local_engine():
+    """Motore leggero senza accesso al database vettoriale (Velocissimo)"""
+    return SimpleChatEngine.from_defaults(
+        system_prompt="Sei un assistente utile e conciso. Rispondi direttamente senza cercare documenti.",
+        llm=Settings.llm,
+        memory=ChatMemoryBuffer.from_defaults(token_limit=2000)
+    )
+
+# 4. MOTORE CLOUD (Gemini)
 def load_cloud_engine():
-    if not GOOGLE_API_KEY:
-        raise ValueError("Manca GOOGLE_API_KEY nel file .env")
+    if not GOOGLE_API_KEY: raise ValueError("Manca GOOGLE_API_KEY nel file .env")
     llm_cloud = Gemini(model="models/gemini-2.5-flash", api_key=GOOGLE_API_KEY)
     return SimpleChatEngine.from_defaults(
         system_prompt="Sei un assistente AI avanzato (Gemini). Rispondi con precisione.",
@@ -81,41 +105,58 @@ def load_cloud_engine():
         memory=ChatMemoryBuffer.from_defaults(token_limit=8000)
     )
 
-# --- HELPER: TROVA FILE NELLE SOTTOCARTELLE (MISSING FUNCTION) ---
-def find_relative_path(filename: str) -> str:
-    """
-    Cerca il file dentro ARCHIVE_DIR e restituisce il percorso relativo (es. 'Sottocartella/file.pdf').
-    Se non lo trova, restituisce solo il filename (fallback).
-    """
-    try:
-        # rglob('*') cerca ricorsivamente in tutte le cartelle
-        matches = list(ARCHIVE_DIR.rglob(filename))
-        if matches:
-            # Prendi il primo match e calcola il percorso relativo dalla root
-            rel_path = matches[0].relative_to(ARCHIVE_DIR)
-            # Normalizza gli slash per il web (Windows usa \, Web usa /)
-            return str(rel_path).replace('\\', '/')
-    except Exception:
-        pass
-    return filename
-
-# --- 3. GESTIONE STATO UTENTE ---
+# --- 3. GESTIONE STATO UTENTE E ROUTING ---
 class UserSession:
     def __init__(self):
         self.is_cloud = False
-        self.local_engine = None 
-        self.cloud_engine = None
+        self.rag_engine = None    # Motore con documenti
+        self.simple_engine = None # Motore veloce
+        self.cloud_engine = None  # Gemini
         self.uploaded_context = "" 
         
-    async def get_active_engine(self):
-        if self.is_cloud:
-            if not self.cloud_engine:
-                self.cloud_engine = await run.io_bound(load_cloud_engine)
-            return self.cloud_engine
-        else:
-            if not self.local_engine:
-                self.local_engine = await run.io_bound(load_local_engine)
-            return self.local_engine
+    async def get_rag_engine(self):
+        if not self.rag_engine: self.rag_engine = await run.io_bound(load_rag_engine)
+        return self.rag_engine
+
+    async def get_simple_engine(self):
+        if not self.simple_engine: self.simple_engine = await run.io_bound(load_simple_local_engine)
+        return self.simple_engine
+
+    async def get_cloud_engine(self):
+        if not self.cloud_engine: self.cloud_engine = await run.io_bound(load_cloud_engine)
+        return self.cloud_engine
+
+    # --- IL PORTIERE (ROUTER) ---
+    async def decide_engine(self, text):
+        """Decide se usare il motore RAG (Legge) o Simple (Chat)"""
+        text_lower = text.lower()
+        
+        # 1. Controllo rapido parole chiave (Istantaneo)
+        triggers_law = ['legge', 'art', 'articolo', 'regolamento', 'decreto', 'pdf', 'documento', 'sentenza', 'comma', 'cerca', 'contratto']
+        if any(t in text_lower for t in triggers_law):
+            return "RAG"
+        
+        # 2. Controllo rapido matematica/saluti (Istantaneo)
+        triggers_chat = ['ciao', 'buongiorno', 'come stai', 'quanto fa', 'chi sei', 'grazie', 'calcola', 'aiutami' , '#insta']
+        if any(t in text_lower for t in triggers_chat):
+            return "SIMPLE"
+
+        # 3. Fallback: Se incerto, chiediamo all'LLM (Routing Intelligente)
+        try:
+            # Usiamo una chiamata 'complete' leggera
+            prompt = (
+                f"Analizza la richiesta: '{text}'.\n"
+                "Se riguarda leggi, normative o documenti rispondi 'RAG'.\n"
+                "Se è matematica, saluti o cultura generale rispondi 'SIMPLE'.\n"
+                "Rispondi SOLO con una parola."
+            )
+            # Nota: usiamo Settings.llm direttamente per una risposta lampo
+            resp = await Settings.llm.acomplete(prompt)
+            decision = str(resp).strip().upper()
+            if "RAG" in decision: return "RAG"
+            return "SIMPLE"
+        except:
+            return "RAG" # Nel dubbio, meglio cercare
 
 # --- 4. INTERFACCIA NICEGUI ---
 @ui.page('/')
@@ -154,12 +195,14 @@ async def main_page():
 
     # --- FOOTER ---
     with ui.footer().classes('bg-slate-100 p-4 border-t'):
+        
         with ui.row().classes('w-full max-w-4xl mx-auto mb-2 text-sm text-gray-600 items-center gap-2') as context_preview:
             context_label = ui.label('').classes('italic')
         context_preview.set_visibility(False)
 
         with ui.row().classes('w-full max-w-4xl mx-auto items-center gap-2 no-wrap'):
             
+            # GESTIONE UPLOAD
             async def handle_upload(e):
                 file = e.content
                 filename = e.name
@@ -187,47 +230,38 @@ async def main_page():
             upload_element = ui.upload(auto_upload=True, on_upload=handle_upload).props('hide-upload-btn').classes('hidden')
             upload_btn = ui.button(icon='attach_file', on_click=lambda: upload_element.run_method('pickFiles')).props('flat round color=grey-7')
 
-           # FUNZIONE INVIO MESSAGGIO (Con Fix Colori Cloud/Local)
+            # FUNZIONE INVIO MESSAGGIO (ROUTER EDITION)
             async def send_message():
                 text = input_field.value
                 if not text: return
                 
-                print(f"\n💬 DOMANDA UTENTE: {text}") 
+                print(f"\n💬 USER: {text}")
                 
                 full_query = text
-                # Gestione contesto file caricato (solo locale)
+                # Se c'è un file allegato, forziamo il RAG engine
+                has_attachment = False
                 if session.uploaded_context and not session.is_cloud:
                     full_query = f"CONTESTO FILE:\n{session.uploaded_context}\n\nDOMANDA: {text}"
                     session.uploaded_context = "" 
                     context_label.text = ""
                     context_preview.set_visibility(False)
+                    has_attachment = True
 
                 input_field.value = '' 
                 
-                # 1. Messaggio Utente
+                # 1. UI UTENTE
                 with chat_container:
                     ui.chat_message(text, name='Tu', sent=True, 
                                     avatar='https://ui-avatars.com/api/?name=Tu&background=gray&color=fff')
                 
-                # 2. Preparazione Messaggio Bot (COLORI DINAMICI)
+                # 2. UI BOT
                 with chat_container:
                     if session.is_cloud:
-                        # --- MODALITÀ CLOUD (ARANCIONE) ---
-                        avatar_name = "Cloud"
-                        avatar_bg = "E67E22" # Arancione scuro
-                        # 'bg-color=orange-2' è un arancione pastello per la bolla
-                        msg_props = 'bg-color=orange-2 text-color=black'
+                        avatar_name, avatar_bg, msg_props = "Cloud", "E67E22", 'bg-color=orange-2 text-color=black'
                     else:
-                        # --- MODALITÀ LOCALE (VERDE) ---
-                        avatar_name = "AI"
-                        avatar_bg = "2ECC71" # Verde smeraldo
-                        # 'bg-color=green-2' è un verde pastello per la bolla
-                        msg_props = 'bg-color=green-2 text-color=black'
+                        avatar_name, avatar_bg, msg_props = "AI", "2ECC71", 'bg-color=green-2 text-color=black'
 
-                    # Costruiamo l'URL dell'avatar
                     avatar_url = f'https://ui-avatars.com/api/?name={avatar_name}&background={avatar_bg}&color=fff'
-
-                    # Creiamo il messaggio applicando i colori scelti
                     bot_msg = ui.chat_message(name='Arcum AI', avatar=avatar_url).props(msg_props)
                     
                     with bot_msg:
@@ -236,24 +270,45 @@ async def main_page():
                             response_area = ui.markdown()
                             sources_row = ui.row().classes('gap-2 mt-2 flex-wrap')
                 
-                # 3. Generazione Risposta
+                # 3. LOGICA DI ROUTING INTELLIGENTE
                 try:
-                    engine = await session.get_active_engine()
-                    print("⚙️ Motore caricato, inizio generazione...")
+                    engine = None
+                    used_mode = ""
+
+                    if session.is_cloud:
+                        engine = await session.get_cloud_engine()
+                        used_mode = "CLOUD"
+                    else:
+                        # SELEZIONE INTELLIGENTE LOCALE
+                        if has_attachment:
+                            # Se ho caricato un file, uso sempre il motore RAG
+                            engine = await session.get_rag_engine()
+                            used_mode = "RAG (File)"
+                        else:
+                            # Altrimenti chiedo al Router
+                            decision = await session.decide_engine(text)
+                            print(f"🚦 ROUTER DECISION: {decision}")
+                            
+                            if decision == "RAG":
+                                engine = await session.get_rag_engine()
+                                used_mode = "RAG (DB)"
+                            else:
+                                engine = await session.get_simple_engine()
+                                used_mode = "SIMPLE (No DB)"
+
+                    print(f"⚙️ Motore attivo: {used_mode}")
                     
-                    # Usa achat (stabile)
+                    # 4. GENERAZIONE
                     response = await engine.achat(full_query)
                     
-                    spinner.delete() 
-                    
+                    spinner.delete()
                     response_text = str(response)
                     if not response_text: response_text = "⚠️ Risposta vuota."
-                    
                     response_area.set_content(response_text)
                     print("✅ Risposta generata.")
                     
-                    # 4. Render Fonti (Solo Locale)
-                    if not session.is_cloud and hasattr(response, "source_nodes") and response.source_nodes:
+                    # 5. FONTI (Solo se RAG e Locale)
+                    if not session.is_cloud and "RAG" in used_mode and hasattr(response, "source_nodes") and response.source_nodes:
                         seen = set()
                         with sources_row: 
                             ui.label("📚 Fonti:").classes('text-xs font-bold text-gray-700 mr-2 self-center opacity-70')
@@ -264,20 +319,17 @@ async def main_page():
 
                                 if fname not in seen:
                                     seen.add(fname)
-                                    
                                     icon = 'description' 
                                     if fname.lower().endswith('.pdf'): icon = 'picture_as_pdf'
                                     elif fname.lower().endswith(('.msg', '.eml')): icon = 'mail'
                                     
-                                    # Logica ricerca percorso
+                                    # Ricerca Path
                                     relative_path = None
                                     if meta_path:
                                         try:
                                             p_meta = Path(meta_path)
-                                            if p_meta.exists():
-                                                relative_path = p_meta.relative_to(ARCHIVE_DIR.absolute())
+                                            if p_meta.exists(): relative_path = p_meta.relative_to(ARCHIVE_DIR.absolute())
                                         except: pass
-
                                     if not relative_path:
                                         found = find_relative_path(fname)
                                         if found != fname: relative_path = found
@@ -287,9 +339,7 @@ async def main_page():
                                     safe_path = quote(path_str, safe='/')
                                     url_link = f'/documents/{safe_path}'
                                     
-                                    # Link Fonte (Stile adattato)
                                     with ui.link(target=url_link, new_tab=True).classes('no-underline decoration-none'):
-                                        # Ho reso lo sfondo dei bottoni fonti semitrasparente bianco per stare bene sia su verde che su arancione
                                         with ui.row().classes('items-center border border-gray-400/30 rounded px-2 py-1 bg-white/50 hover:bg-white/80 cursor-pointer gap-1 transition-colors'):
                                             ui.icon(icon).classes('text-gray-700 text-xs')
                                             ui.label(fname).classes('text-xs text-gray-800 max-w-[150px] truncate')
@@ -298,26 +348,11 @@ async def main_page():
                     spinner.delete()
                     print(f"\n❌ ERRORE:\n{traceback.format_exc()}\n")
                     ui.notify(f"Errore: {str(e)}", type='negative')
-                    with bot_msg:
-                        with ui.column():
-                             ui.label(f"❌ Errore Interno: {str(e)}").classes('text-red-600 font-bold')
-
-                except Exception as e:
-                    spinner.delete()
-                    # Stampiamo l'errore COMPLETO nel terminale
-                    print(f"\n❌ ERRORE GENERAZIONE:\n{traceback.format_exc()}\n")
-                    
-                    ui.notify(f"Errore: {str(e)}", type='negative')
-                    with bot_msg:
-                        with ui.column():
-                             # Mostra l'errore anche nell'interfaccia
-                             ui.label(f"❌ Errore Interno: {str(e)}").classes('text-red-500 font-bold')
-                             ui.label("Controlla il terminale per i dettagli.").classes('text-xs text-gray-500')
-
+                    with bot_msg: ui.label(f"❌ Errore: {str(e)}").classes('text-red-600 font-bold')
 
             input_field = ui.input(placeholder='Scrivi qui...').classes('w-full text-black').props('outlined rounded bg-color=white').on('keydown.enter', send_message)
             ui.button(icon='send', on_click=send_message).props('flat round color=primary')
 
 if __name__ in {"__main__", "__mp_main__"}:
-    print("🚀 Avvio Arcum AI su NiceGUI...")
+    print("🚀 Avvio Arcum AI (Router Edition)...")
     ui.run(title='Arcum AI', host='0.0.0.0', port=8080, favicon='🛡️', reload=False)
