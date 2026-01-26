@@ -10,6 +10,8 @@ desktop.ini
 .DS_Store
 .files/
 prove/
+.nicegui
+
 
 # --- DATI CLIENTI (Privacy Assoluta) ---
 data_nuovi/
