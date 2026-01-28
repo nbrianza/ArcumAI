@@ -127,3 +127,25 @@ def get_all_nodes_from_chroma(chroma_collection):
     except Exception as e:
         log.error(f"❌ Errore recupero nodi: {e}")
         return []
+    
+    # --- AGGIUNTE PER ARCUM AI HYBRID UI ---
+
+from src.config import ARCHIVE_DIR
+
+def find_relative_path(filename: str) -> str:
+    """
+    Cerca il file ricorsivamente dentro ARCHIVE_DIR e restituisce 
+    il percorso relativo normalizzato per il web.
+    Usato dalla UI per generare i link ai PDF.
+    """
+    try:
+        # rglob cerca in tutte le sottocartelle
+        matches = list(ARCHIVE_DIR.rglob(filename))
+        if matches:
+            # Prendi il primo match e calcola il percorso relativo
+            rel_path = matches[0].relative_to(ARCHIVE_DIR)
+            # Normalizza slash per Windows/Web
+            return str(rel_path).replace('\\', '/')
+    except Exception:
+        pass
+    return filename
