@@ -2,7 +2,7 @@ import traceback
 import nest_asyncio
 from pathlib import Path
 from urllib.parse import quote
-from nicegui import ui
+from nicegui import ui, run  # <--- ADDED 'run'
 
 from src.readers import SmartPDFReader
 from src.utils import find_relative_path
@@ -18,6 +18,7 @@ def create_footer(session, user_data, chat_container, mode_display):
 
         with ui.row().classes('w-full max-w-4xl mx-auto items-center gap-2 no-wrap'):
             
+            # --- 1. UPLOAD HANDLER ---
             async def handle_upload(e):
                 file_obj = getattr(e, 'content', None) or getattr(e, 'file', None)
                 filename = getattr(e, 'name', None) or getattr(e, 'filename', None)
@@ -26,14 +27,15 @@ def create_footer(session, user_data, chat_container, mode_display):
                 
                 if not filename: filename = "upload_senza_nome.pdf"
 
-                print(f"📥 UPLOAD AVVIATO: {filename}")
-                ui.notify(f'Analisi {filename}...', type='info')
+                print(f"📥 UPLOAD START: {filename}")
+                ui.notify(f'Analyzing {filename}...', type='info')
                 mode_display.text = "⏳ Analisi File..."
                 mode_display.classes(replace='text-orange-500')
 
                 try:
-                    if not file_obj: raise ValueError("Oggetto file vuoto.")
+                    if not file_obj: raise ValueError("File object is empty.")
                     
+                    # Read bytes
                     if hasattr(file_obj, 'read'):
                         data = file_obj.read()
                         if hasattr(data, '__await__'): data = await data
@@ -47,48 +49,65 @@ def create_footer(session, user_data, chat_container, mode_display):
                         temp_path = Path("temp_ghost_upload.pdf")
                         with open(temp_path, "wb") as f: f.write(data)
                         
-                        # Esecuzione Diretta (Stabile su Windows)
-                        try:
-                            reader = SmartPDFReader()
-                            docs = reader.load_data(temp_path)
-                            text_content = "\n".join([d.text for d in docs])
-                        finally:
-                            if temp_path.exists(): temp_path.unlink()
+                        # --- FIX: RUNNING IN THREAD TO PREVENT TIMEOUTS ---
+                        def read_pdf_sync():
+                            """Blocking function to be run in a separate thread"""
+                            try:
+                                reader = SmartPDFReader()
+                                docs = reader.load_data(temp_path)
+                                return "\n".join([d.text for d in docs])
+                            except Exception as e:
+                                raise e
+
+                        # Execute in a separate thread so the UI doesn't freeze
+                        text_content = await run.io_bound(read_pdf_sync)
+                        
+                        if temp_path.exists(): temp_path.unlink()
                     else:
                         text_content = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
                     
                     if not text_content or not text_content.strip(): 
-                        raise ValueError("File vuoto o illeggibile.")
+                        raise ValueError("File is empty or unreadable.")
 
-                    # LIMITE 10k per Llama 3.2
+                    # Save to Session (Limit 10k chars for Llama 3.2 safety)
                     session.uploaded_context = text_content[:10000]
                     
+                    # Update UI
                     context_label.text = f"📎 Allegato pronto: {filename}"
                     context_preview.set_visibility(True)
                     mode_display.text = f"📄 File: {filename[:15]}..."
                     mode_display.classes(replace='text-blue-600')
                     
-                    ui.notify('✅ Documento analizzato! Chiedi pure.', type='positive')
+                    print(f"✅ UPLOAD COMPLETE. Context size: {len(session.uploaded_context)}")
+                    ui.notify('✅ Document analyzed! Ask away.', type='positive')
                     
                 except Exception as err:
-                    print(f"❌ Errore Upload: {traceback.format_exc()}")
-                    ui.notify(f'Errore: {str(err)}', type='negative')
+                    print(f"❌ Error Upload: {traceback.format_exc()}")
+                    ui.notify(f'Error: {str(err)}', type='negative')
                     mode_display.text = "❌ Errore Caricamento"
                     mode_display.classes(replace='text-red-600')
 
-            upload_element = ui.upload(auto_upload=True, on_upload=handle_upload, max_file_size=15_000_000).props('hide-upload-btn no-thumbnails accept=".pdf, .txt, .md"').style('position: absolute; top: -9999px; left: -9999px;')
+            upload_element = ui.upload(
+                auto_upload=True, 
+                on_upload=handle_upload, 
+                max_file_size=15_000_000
+            ).props('hide-upload-btn no-thumbnails accept=".pdf, .txt, .md"').style('position: absolute; top: -9999px; left: -9999px;')
+            
             upload_btn = ui.button(icon='attach_file', on_click=lambda: upload_element.run_method('pickFiles')).props('flat round color=grey-7')
             if session.is_cloud: upload_btn.set_visibility(False)
 
+            # --- 2. SEND MESSAGE HANDLER ---
             async def send_message():
                 text = input_field.value
                 if not text: return
                 input_field.value = '' 
                 
+                # Render User Message
                 with chat_container:
                     avatar_me = f'https://ui-avatars.com/api/?name={quote(user_data["full_name"])}&background=gray&color=fff'
                     ui.chat_message(text, name='Tu', sent=True, avatar=avatar_me)
                 
+                # Render AI Message Placeholder
                 with chat_container:
                     is_cloud = session.is_cloud
                     bot_name = "Cloud" if is_cloud else "AI"
@@ -104,9 +123,10 @@ def create_footer(session, user_data, chat_container, mode_display):
                             sources_row = ui.row().classes('gap-2 mt-2 flex-wrap')
 
                 try:
-                    # Passiamo il controllo all'engine
+                    # Execute Logic
                     response, used_mode = await session.run_chat_action(text)
                     
+                    # Update Sidebar State
                     if used_mode == "CLOUD":
                         mode_display.text = "☁️ Gemini Cloud"
                         mode_display.classes(replace='text-orange-600')
@@ -125,6 +145,7 @@ def create_footer(session, user_data, chat_container, mode_display):
                     
                     response_area.set_content(str(response) or "⚠️ Risposta vuota.")
                     
+                    # Show Sources (RAG Only)
                     if not session.is_cloud and used_mode == "RAG" and hasattr(response, "source_nodes"):
                         seen = set()
                         with sources_row: 
