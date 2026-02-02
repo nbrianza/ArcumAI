@@ -50,7 +50,6 @@ def load_rag_engine(user_role="DEFAULT"):
     selected_prompt = ROLE_PROMPTS.get(user_role, DEFAULT_SYSTEM_PROMPT)
     print(f"🎭 Engine RAG Caricato | Profilo: {user_role}")
 
-    if hasattr(Settings.llm, 'request_timeout'): Settings.llm.request_timeout = 600.0
 
     return ContextChatEngine.from_defaults(
         retriever=retriever,
@@ -62,7 +61,6 @@ def load_rag_engine(user_role="DEFAULT"):
 
 def load_simple_local_engine():
     """Motore Locale: Llama. Vede i file caricati."""
-    if hasattr(Settings.llm, 'request_timeout'): Settings.llm.request_timeout = 600.0
 
     return SimpleChatEngine.from_defaults(
         system_prompt="Sei un analista di dati. Rispondi basandoti ESCLUSIVAMENTE sul testo fornito, se presente.",
