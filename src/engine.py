@@ -121,29 +121,45 @@ class UserSession:
     async def decide_engine(self, text):
         text_lower = text.lower()
         
-        # 1. Comandi espliciti
+        # 1. Comandi espliciti (Hanno sempre la priorità)
         if "@rag" in text_lower or "@cerca" in text_lower: return "RAG"
         if "@simple" in text_lower or "@chat" in text_lower: return "SIMPLE"
         
-        # 2. Trigger Documentali (RAG)
-        if any(t in text_lower for t in GLOBAL_TRIGGERS_LIST): 
+        # --- 2. LOGICA SOTTRATTIVA IBRIDA ---
+        
+        # A. Identifichiamo i trigger di Chat presenti (es. "ciao", "grazie")
+        found_chat_triggers = [t for t in GLOBAL_CHAT_TRIGGERS if t in text_lower]
+        
+        # B. Creiamo una versione "pulita" del testo rimuovendo i saluti
+        # Questo evita che un semplice "Ciao" attivi il RAG se "ciao" fosse per errore anche nei file RAG
+        clean_text = text_lower
+        for t in found_chat_triggers:
+            clean_text = clean_text.replace(t, " ") 
+            
+        # C. Verifica Trigger RAG sul testo RIMANENTE
+        # Esempio: "Ciao Apple" -> toglie "ciao", resta "apple" -> RAG True
+        # Esempio: "Ciao" -> toglie "ciao", resta " " -> RAG False
+        if any(t in clean_text for t in GLOBAL_TRIGGERS_LIST): 
             return "RAG"
         
-        # 3. Trigger Conversazionali (Chat Semplice)
-        # --- ORA USA LA LISTA CARICATA DAL FILE chat.txt ---
-        if any(t in text_lower for t in GLOBAL_CHAT_TRIGGERS): 
+        # D. Se non ci sono trigger RAG, ma c'erano trigger Chat -> SIMPLE
+        if found_chat_triggers:
             return "SIMPLE"
-        # ---------------------------------------------------
+            
+        # -------------------------------------
 
-        # 4. Fallback Intelligente
+        # 3. Fallback Intelligente (LLM)
+        # Se non abbiamo trovato nessuna parola chiave, lasciamo decidere all'LLM
         try:
             prompt = (f"Classify intent: '{text}'. Reply 'RAG' if it requires looking up specific documents, numbers, or facts. "
-                      "Reply 'SIMPLE' if it is just a greeting or general chitchat. One word only.")
+                      "Reply 'SIMPLE' if it is just a greeting, general chitchat or a question about previous messages. One word only.")
             resp = await Settings.llm.acomplete(prompt)
             decision = str(resp).strip().upper()
             if "RAG" in decision: return "RAG"
             return "SIMPLE"
-        except: return "RAG"
+        except: 
+            # In caso di errore API, il fallback sicuro è RAG (meglio cercare che ignorare)
+            return "RAG"
 
 
     def _format_history_as_text(self, limit=6):
