@@ -1,0 +1,106 @@
+import asyncio
+import json
+import uuid
+from typing import Dict, Any
+from fastapi import WebSocket
+
+# Usiamo il server_log definito poco fa (lo rinomiamo 'log' qui per comodità)
+from src.logger import server_log as log 
+
+class OutlookBridgeManager:
+    def __init__(self):
+        # Mappa: user_id -> WebSocket attivo
+        self.active_connections: Dict[str, WebSocket] = {}
+        
+        # Mappa: request_id -> Future (il "semaforo" per l'attesa)
+        self.pending_requests: Dict[str, asyncio.Future] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+        log.info(f"🔌 Bridge: Utente '{user_id}' connesso via WebSocket.")
+
+    def disconnect(self, user_id: str):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
+            log.info(f"🔌 Bridge: Utente '{user_id}' disconnesso.")
+
+    async def send_mcp_request(self, user_id: str, tool_name: str, args: dict) -> Any:
+        """
+        Invia un comando a Outlook e aspetta la risposta (bloccando l'esecuzione qui).
+        """
+        if user_id not in self.active_connections:
+            msg = f"⚠️ Tentativo di uso Outlook fallito: Nessun client connesso per l'utente '{user_id}'."
+            log.warning(msg)
+            return msg
+
+        # 1. Crea un ID univoco per la richiesta
+        request_id = str(uuid.uuid4())
+        
+        # 2. Prepara il pacchetto JSON-RPC (Standard MCP)
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": args
+            },
+            "id": request_id
+        }
+
+        # 3. Crea la "Promessa" di risposta
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self.pending_requests[request_id] = future
+
+        try:
+            # 4. Invia al WebSocket
+            ws = self.active_connections[user_id]
+            await ws.send_text(json.dumps(payload))
+            log.debug(f"📤 Bridge: Inviato comando '{tool_name}' a {user_id} (ID: {request_id})")
+
+            # 5. Aspetta la risposta (Timeout 30s)
+            result = await asyncio.wait_for(future, timeout=30.0)
+            return result
+
+        except asyncio.TimeoutError:
+            if request_id in self.pending_requests:
+                del self.pending_requests[request_id]
+            err_msg = f"⚠️ Timeout Bridge: Outlook di {user_id} non ha risposto in 30s."
+            log.error(err_msg)
+            return err_msg
+            
+        except Exception as e:
+            err_msg = f"⚠️ Errore Critico Bridge: {str(e)}"
+            log.error(err_msg, exc_info=True)
+            return err_msg
+
+    async def handle_incoming_message(self, user_id: str, message: str):
+        """Riceve le risposte da Outlook e sblocca le richieste in attesa."""
+        try:
+            data = json.loads(message)
+            
+            # Se è una risposta a una nostra chiamata (ha un ID)
+            if "id" in data:
+                req_id = data["id"]
+                if req_id in self.pending_requests:
+                    future = self.pending_requests[req_id]
+                    
+                    if "error" in data:
+                        log.warning(f"❌ Outlook Error (req {req_id}): {data['error']}")
+                        future.set_result(f"❌ Errore da Outlook: {data['error']}")
+                    else:
+                        log.debug(f"📥 Bridge: Risposta ricevuta per {req_id}")
+                        future.set_result(data.get("result", "OK"))
+                    
+                    del self.pending_requests[req_id]
+            
+            # Eventi Push (Notifiche dal client)
+            elif "method" in data:
+                 log.info(f"🔔 Notifica da Outlook ({user_id}): {data['method']}")
+
+        except Exception as e:
+            log.error(f"❌ Errore parsing messaggio da {user_id}: {e}", exc_info=True)
+
+# Istanza globale
+bridge_manager = OutlookBridgeManager()

@@ -238,3 +238,49 @@ class UserSession:
         self.global_history.append(ChatMessage(role=MessageRole.ASSISTANT, content=str(response)))
 
         return response, used_mode
+    
+
+from llama_index.core.tools import FunctionTool
+from src.bridge import bridge_manager
+
+
+
+# --- DEFINIZIONE TOOLS OUTLOOK ---
+
+async def tool_read_email(query: str):
+    """
+    Cerca le email in Outlook. 
+    Usa questo tool se l'utente chiede 'leggi le mail', 'cerca mail da Mario', 'ultime fatture'.
+    Args:
+        query (str): Cosa cercare (es. "from:mario", "subject:fattura", "unread").
+    """
+    # TODO: In produzione useremo l'utente della sessione corrente.
+    # Per ora usiamo un placeholder per testare.
+    current_user = "admin" 
+    
+    return await bridge_manager.send_mcp_request(
+        current_user, 
+        "search_emails", 
+        {"query": query}
+    )
+
+async def tool_get_calendar(date_filter: str = "today"):
+    """
+    Controlla il calendario di Outlook.
+    Usa questo tool se l'utente chiede 'cosa ho da fare oggi?', 'impegni domani'.
+    Args:
+        date_filter (str): 'today', 'tomorrow', o una data 'YYYY-MM-DD'.
+    """
+    current_user = "admin"
+    
+    return await bridge_manager.send_mcp_request(
+        current_user,
+        "get_calendar",
+        {"filter": date_filter}
+    )
+
+# Lista pronta da passare all'Agent o al ChatEngine
+outlook_tools = [
+    FunctionTool.from_defaults(fn=tool_read_email, async_fn=tool_read_email),
+    FunctionTool.from_defaults(fn=tool_get_calendar, async_fn=tool_get_calendar),
+]    

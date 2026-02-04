@@ -12,47 +12,48 @@ except ImportError:
 # Crea cartella logs se non esiste
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# File di log principale
-LOG_FILE = LOG_DIR / "ingestion.log"
+def _create_custom_logger(logger_name, filename):
+    """
+    Funzione factory per creare logger configurati con file diversi.
+    """
+    log_file_path = LOG_DIR / filename
+    
+    # Formatter comune
+    log_format = logging.Formatter(
+        "%(asctime)s - [%(levelname)s] - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
 
-# --- 1. CONFIGURAZIONE FORMATTER ---
-log_format = logging.Formatter(
-    "%(asctime)s - [%(levelname)s] - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
+    # Handler Rotazione File (Ogni notte)
+    file_handler = TimedRotatingFileHandler(
+        log_file_path, 
+        when='midnight', 
+        interval=1, 
+        backupCount=30, 
+        encoding='utf-8'
+    )
+    file_handler.suffix = "%Y-%m-%d" 
+    file_handler.setFormatter(log_format)
 
-# --- 2. HANDLER ROTAZIONE GIORNALIERA (TIME BASED) ---
-# when='midnight': Ruota ogni notte a mezzanotte
-# interval=1: Ogni 1 giorno
-# backupCount=30: Mantiene lo storico degli ultimi 30 giorni
-file_handler = TimedRotatingFileHandler(
-    LOG_FILE, 
-    when='midnight', 
-    interval=1, 
-    backupCount=30, 
-    encoding='utf-8'
-)
-file_handler.suffix = "%Y-%m-%d" 
-file_handler.setFormatter(log_format)
+    # Handler Console (per vedere i log a video)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_format)
 
-# --- 3. HANDLER CONSOLE (Per vedere i log a video) ---
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(log_format)
+    # Setup Logger
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False # Evita duplicati
 
-# --- 4. CREAZIONE LOGGER ARCUM AI ---
-logger = logging.getLogger("ArcumAI")
-logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+    
+    return logger
 
-# --- FIX CRITICO PER DOPPIE RIGHE ---
-# Questo impedisce al log di "risalire" al logger radice di Python
-# che altrimenti lo stamperebbe una seconda volta.
-logger.propagate = False 
-# ------------------------------------
+# --- ESPORTIAMO I DUE LOGGER ---
 
-# Evita duplicazione handler se lo script viene ricaricato
-if not logger.handlers:
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+# 1. Logger per INGESTION (main.py) - Nome 'log' per compatibilità
+log = _create_custom_logger("ArcumIngestion", "ingestion.log")
 
-# Alias breve per usarlo negli altri file
-log = logger
+# 2. Logger per SERVER/BRIDGE (main_nice.py)
+server_log = _create_custom_logger("ArcumServer", "server.log")

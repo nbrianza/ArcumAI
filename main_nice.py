@@ -1,3 +1,5 @@
+from fastapi import WebSocket, WebSocketDisconnect
+from src.bridge import bridge_manager
 from pathlib import Path
 from nicegui import ui, app
 
@@ -29,6 +31,24 @@ ASSETS_DIR = Path("assets")
 if not ASSETS_DIR.exists(): ASSETS_DIR.mkdir()
 app.add_static_files('/assets', str(ASSETS_DIR))
 
+
+# --- ENDPOINT WEBSOCKET PER OUTLOOK ---
+# L'app NiceGUI espone l'oggetto 'app' che è un'istanza FastAPI
+@app.websocket("/ws/outlook/{user_id}")
+async def outlook_endpoint(websocket: WebSocket, user_id: str):
+    """
+    Endpoint a cui si collega il plugin C#.
+    URL: ws://tuo-server:8080/ws/outlook/nome_utente
+    """
+    await bridge_manager.connect(websocket, user_id)
+    try:
+        while True:
+            # Loop infinito di ascolto
+            data = await websocket.receive_text()
+            await bridge_manager.handle_incoming_message(user_id, data)
+    except WebSocketDisconnect:
+        bridge_manager.disconnect(user_id)
+        
 
 # --- PAGINA LOGIN ---
 @ui.page('/login')
