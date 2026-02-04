@@ -13,12 +13,19 @@ from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.chat_engine import ContextChatEngine, SimpleChatEngine
 from llama_index.llms.gemini import Gemini
 
+
+from src.utils import load_global_triggers, load_chat_triggers
+GLOBAL_TRIGGERS_LIST = load_global_triggers()  # RAG (it, en, de, fr)
+GLOBAL_CHAT_TRIGGERS = load_chat_triggers()    # CHAT (chat.txt)
+
+
 # Import Configurazione
 from src.config import (
     DB_PATH, CHROMA_PATH, BM25_PATH, COLLECTION_NAME,
     RETRIEVER_TOP_K, init_settings,
     DEFAULT_SYSTEM_PROMPT, CUSTOM_CONTEXT_TEMPLATE, ROLE_PROMPTS
 )
+
 
 # --- 1. CARICAMENTO MOTORI ---
 
@@ -113,22 +120,31 @@ class UserSession:
 
     async def decide_engine(self, text):
         text_lower = text.lower()
+        
+        # 1. Comandi espliciti
         if "@rag" in text_lower or "@cerca" in text_lower: return "RAG"
         if "@simple" in text_lower or "@chat" in text_lower: return "SIMPLE"
         
-        triggers_law = ['legge', 'art', 'articolo', 'regolamento', 'decreto', 'pdf', 'documento', 'sentenza', 'comma', 'cerca', 'rogito']
-        if any(t in text_lower for t in triggers_law): return "RAG"
-        triggers_chat = ['ciao', 'buongiorno', 'come stai', 'chi sei', 'grazie']
-        if any(t in text_lower for t in triggers_chat): return "SIMPLE"
+        # 2. Trigger Documentali (RAG)
+        if any(t in text_lower for t in GLOBAL_TRIGGERS_LIST): 
+            return "RAG"
+        
+        # 3. Trigger Conversazionali (Chat Semplice)
+        # --- ORA USA LA LISTA CARICATA DAL FILE chat.txt ---
+        if any(t in text_lower for t in GLOBAL_CHAT_TRIGGERS): 
+            return "SIMPLE"
+        # ---------------------------------------------------
 
+        # 4. Fallback Intelligente
         try:
-            prompt = (f"Classifica la richiesta: '{text}'. Rispondi 'RAG' se serve cercare in documenti legali. "
-                      "Rispondi 'SIMPLE' se è una conversazione generica. Solo 1 parola.")
+            prompt = (f"Classify intent: '{text}'. Reply 'RAG' if it requires looking up specific documents, numbers, or facts. "
+                      "Reply 'SIMPLE' if it is just a greeting or general chitchat. One word only.")
             resp = await Settings.llm.acomplete(prompt)
             decision = str(resp).strip().upper()
             if "RAG" in decision: return "RAG"
             return "SIMPLE"
         except: return "RAG"
+
 
     def _format_history_as_text(self, limit=6):
         if not self.global_history: return ""
