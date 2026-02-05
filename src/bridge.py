@@ -4,7 +4,7 @@ import uuid
 from typing import Dict, Any
 from fastapi import WebSocket
 
-# Usiamo il server_log definito poco fa (lo rinomiamo 'log' qui per comodità)
+# Usiamo il server_log definito in src/logger.py
 from src.logger import server_log as log 
 
 class OutlookBridgeManager:
@@ -56,8 +56,13 @@ class OutlookBridgeManager:
         try:
             # 4. Invia al WebSocket
             ws = self.active_connections[user_id]
-            await ws.send_text(json.dumps(payload))
-            log.debug(f"📤 Bridge: Inviato comando '{tool_name}' a {user_id} (ID: {request_id})")
+            
+            # --- MODIFICA LOGGING TX ---
+            json_str = json.dumps(payload)
+            await ws.send_text(json_str)
+            # Log livello INFO per vederlo in server.log con tutto il JSON
+            log.info(f"📤 MCP TX [{user_id}]: {json_str}") 
+            # ---------------------------
 
             # 5. Aspetta la risposta (Timeout 30s)
             result = await asyncio.wait_for(future, timeout=30.0)
@@ -77,6 +82,12 @@ class OutlookBridgeManager:
 
     async def handle_incoming_message(self, user_id: str, message: str):
         """Riceve le risposte da Outlook e sblocca le richieste in attesa."""
+        
+        # --- MODIFICA LOGGING RX ---
+        # Logghiamo il messaggio grezzo appena arriva (INFO level)
+        log.info(f"📥 MCP RX [{user_id}]: {message}")
+        # ---------------------------
+
         try:
             data = json.loads(message)
             
@@ -90,12 +101,12 @@ class OutlookBridgeManager:
                         log.warning(f"❌ Outlook Error (req {req_id}): {data['error']}")
                         future.set_result(f"❌ Errore da Outlook: {data['error']}")
                     else:
-                        log.debug(f"📥 Bridge: Risposta ricevuta per {req_id}")
+                        # Rimosso log.debug qui per non duplicare l'info
                         future.set_result(data.get("result", "OK"))
                     
                     del self.pending_requests[req_id]
             
-            # Eventi Push (Notifiche dal client)
+            # Eventi Push (Notifiche dal client, es. "closing")
             elif "method" in data:
                  log.info(f"🔔 Notifica da Outlook ({user_id}): {data['method']}")
 

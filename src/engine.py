@@ -2,6 +2,7 @@ import sys
 import os
 import chromadb
 from nicegui import run
+from functools import partial  # <--- IMPORTANTE PER I TOOL DINAMICI
 from llama_index.core.llms import ChatMessage, MessageRole
 
 # LlamaIndex Imports
@@ -94,10 +95,36 @@ def load_cloud_engine():
         memory=ChatMemoryBuffer.from_defaults(token_limit=8192)
     )
 
+
+# --- IMPLEMENTAZIONE TOOL PURA (Slegata dall'utente) ---
+async def _impl_read_email(target_outlook_id: str, query: str):
+    """Implementazione interna che richiede l'ID esplicito."""
+    if not target_outlook_id:
+        return "ERRORE: Nessun account Outlook collegato a questo utente ArcumAI."
+    
+    return await bridge_manager.send_mcp_request(
+        target_outlook_id, 
+        "search_emails", 
+        {"query": query}
+    )
+
+async def _impl_get_calendar(target_outlook_id: str, date_filter: str = "today"):
+    """Implementazione interna calendario."""
+    if not target_outlook_id:
+        return "ERRORE: Nessun account Outlook collegato."
+        
+    return await bridge_manager.send_mcp_request(
+        target_outlook_id,
+        "get_calendar",
+        {"filter": date_filter}
+    )
+
+
 # --- 2. CLASSE SESSIONE ---
 
 class UserSession:
-    def __init__(self, role="DEFAULT"):
+    def __init__(self, username, role="DEFAULT"): # <--- Aggiunto username
+        self.username = username
         self.role = role
         self.is_cloud = False
         self.uploaded_context = ""   
@@ -106,6 +133,40 @@ class UserSession:
         self.simple_engine = None 
         self.cloud_engine = None  
         
+        # 1. RECUPERA ID OUTLOOK DAL JSON
+        self.outlook_id = self._get_outlook_id()
+        
+        # 2. CREA I TOOL SPECIFICI PER QUESTO UTENTE
+        self.tools = self._create_user_tools()
+
+    def _get_outlook_id(self):
+        """Legge users.json e trova l'ID Outlook associato."""
+        users = load_users()
+        user_info = users.get(self.username, {})
+        return user_info.get("outlook_id", None) # Ritorna None se non c'è
+
+    def _create_user_tools(self):
+        """Crea FunctionTools con l'ID utente già iniettato."""
+        
+        # Creiamo una versione della funzione che ha già il primo argomento fissato
+        read_email_bound = partial(_impl_read_email, self.outlook_id)
+        calendar_bound = partial(_impl_get_calendar, self.outlook_id)
+        
+        return [
+            FunctionTool.from_defaults(
+                fn=read_email_bound, 
+                async_fn=read_email_bound,
+                name="tool_read_email",
+                description="Legge le email da Outlook. Query opzionale (es. 'from:mario')."
+            ),
+            FunctionTool.from_defaults(
+                fn=calendar_bound, 
+                async_fn=calendar_bound,
+                name="tool_get_calendar",
+                description="Legge il calendario. Filter: 'today' o 'tomorrow'."
+            ),
+        ]
+  
     async def get_rag_engine(self):
         if not self.rag_engine: self.rag_engine = await run.io_bound(load_rag_engine, self.role)
         return self.rag_engine
@@ -123,7 +184,7 @@ class UserSession:
         
         # 1. Comandi espliciti (Hanno sempre la priorità)
         if "@rag" in text_lower or "@cerca" in text_lower: return "RAG"
-        if "@simple" in text_lower or "@chat" in text_lower: return "SIMPLE"
+        if "@simple" in text_lower or "@chat" in text_lower or "@outlook" in text_lower: return "SIMPLE"
         
         # --- 2. LOGICA SOTTRATTIVA IBRIDA ---
         
@@ -257,6 +318,8 @@ class UserSession:
     
 
 from llama_index.core.tools import FunctionTool
+
+from src.auth import load_users     # <--- NECESSARIO PER LEGGERE JSON
 from src.bridge import bridge_manager
 
 

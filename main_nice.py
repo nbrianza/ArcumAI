@@ -96,7 +96,7 @@ async def main_page():
         return
 
     user_data = app.storage.user
-    session = UserSession(role=user_data['role']) 
+    session = UserSession(username=user_data['username'], role=user_data['role']) 
     
     # 1. SIDEBAR (Restituisce l'etichetta di stato per aggiornamenti futuri)
     mode_display = create_sidebar(user_data)
