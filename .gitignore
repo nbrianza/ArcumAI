@@ -40,3 +40,19 @@ users.json      # Ignora il file con le password hashate
 doc/*.pdf
 doc/*.rtf
 doc/~$*
+
+# --- C# / VISUAL STUDIO (Outlook Plugin) ---
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+packages/
+_ReSharper*/
+*.generated.cs
+
+# File temporanei di Outlook VSTO
+*.vsto
+*.deploy
