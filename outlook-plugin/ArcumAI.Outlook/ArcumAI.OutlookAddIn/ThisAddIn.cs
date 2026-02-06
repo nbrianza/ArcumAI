@@ -30,6 +30,17 @@ namespace ArcumAI.OutlookAddIn
 
             Log("INFO", $"ArcumAI Plugin avviato | Server: {_config.ServerUrl} | Utente: {_config.UserId}");
 
+            // Dump configurazione completa nel file di log
+            try
+            {
+                string cfgJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
+                Log("INFO", $"Configurazione effettiva: {cfgJson}");
+            }
+            catch (Exception ex)
+            {
+                Log("WARNING", $"Impossibile serializzare configurazione: {ex.Message}");
+            }
+
             // 2. Setup Trasporto
             _transport = new WebSocketTransport();
             _transport.MessageReceived += OnMessageFromArcum;

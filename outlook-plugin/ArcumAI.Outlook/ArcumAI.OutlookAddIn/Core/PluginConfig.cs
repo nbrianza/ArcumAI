@@ -157,7 +157,7 @@ namespace ArcumAI.OutlookAddIn.Core
             if (appSettings["LogLevel"] != null)
                 LogLevel = appSettings["LogLevel"];
 
-            if (appSettings["LogFilePath"] != null)
+            if (appSettings["LogFilePath"] != null && !string.IsNullOrWhiteSpace(appSettings["LogFilePath"]))
                 LogFilePath = appSettings["LogFilePath"];
 
             if (appSettings["UseSecureConnection"] != null && bool.TryParse(appSettings["UseSecureConnection"], out bool useSecure))
