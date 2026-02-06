@@ -1,0 +1,16 @@
+{
+  "ServerUrl": "ws://localhost:8080",
+  "ReconnectDelayMs": 5000,
+  "MaxReconnectAttempts": 10,
+  "ConnectionTimeoutMs": 30000,
+  "RequestTimeoutMs": 60000,
+  "MaxEmailResults": 10,
+  "EmailPreviewLength": 200,
+  "EnableLogging": true,
+  "LogLevel": "INFO",
+  "LogFilePath": "",
+  "UseSecureConnection": false,
+  "UserId": "",
+  "AutoReconnect": true,
+  "HeartbeatIntervalMs": 30000
+}
