@@ -131,7 +131,7 @@ class SmartPDFReader:
             return documents
 
         except Exception as e:
-            log.error(f"❌ Errore SmartPDFReader su {file_path.name}: {e}")
+            log.error(f"❌ Errore SmartPDFReader su {file_path.name}: {e}", exc_info=True)
             return []
 
 # --- Le altre classi (Outlook/EML) rimangono uguali sotto ---

@@ -7,26 +7,32 @@ from llama_index.core import Settings
 from llama_index.core.node_parser import SentenceSplitter
 
 # --- 1. PROFILI HARDWARE ---
-PROFILE = "LOW_RESOURCE" 
+# Profile selects defaults; individual values can be overridden via .env
+PROFILE = os.getenv("PROFILE", "LOW_RESOURCE")
 
-if PROFILE == "LOW_RESOURCE":
-    LLM_MODEL_NAME = "llama3.2:3b"
-    EMBED_MODEL_NAME = "BAAI/bge-m3"
-    CONTEXT_WINDOW = 4096
-    REQUEST_TIMEOUT = 3600.0
-    CHUNK_SIZE = 512
-    CHUNK_OVERLAP = 64
-    RETRIEVER_TOP_K = 10
-    FINAL_TOP_K = 5
-else: 
-    LLM_MODEL_NAME = "llama3.3:70b"
-    EMBED_MODEL_NAME = "BAAI/bge-m3"
-    CONTEXT_WINDOW = 16384
-    REQUEST_TIMEOUT = 120.0
-    CHUNK_SIZE = 1024     
-    CHUNK_OVERLAP = 128
-    RETRIEVER_TOP_K = 20
-    FINAL_TOP_K = 10
+if PROFILE == "HIGH_RESOURCE":
+    _defaults = {
+        "LLM_MODEL": "llama3.3:70b", "EMBED_MODEL": "BAAI/bge-m3",
+        "CONTEXT_WINDOW": "16384", "REQUEST_TIMEOUT": "120.0",
+        "CHUNK_SIZE": "1024", "CHUNK_OVERLAP": "128",
+        "RETRIEVER_TOP_K": "20", "FINAL_TOP_K": "10",
+    }
+else:  # LOW_RESOURCE (default)
+    _defaults = {
+        "LLM_MODEL": "llama3.2:3b", "EMBED_MODEL": "BAAI/bge-m3",
+        "CONTEXT_WINDOW": "4096", "REQUEST_TIMEOUT": "3600.0",
+        "CHUNK_SIZE": "512", "CHUNK_OVERLAP": "64",
+        "RETRIEVER_TOP_K": "10", "FINAL_TOP_K": "5",
+    }
+
+LLM_MODEL_NAME = os.getenv("LLM_MODEL", _defaults["LLM_MODEL"])
+EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", _defaults["EMBED_MODEL"])
+CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW", _defaults["CONTEXT_WINDOW"]))
+REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", _defaults["REQUEST_TIMEOUT"]))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", _defaults["CHUNK_SIZE"]))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", _defaults["CHUNK_OVERLAP"]))
+RETRIEVER_TOP_K = int(os.getenv("RETRIEVER_TOP_K", _defaults["RETRIEVER_TOP_K"]))
+FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", _defaults["FINAL_TOP_K"]))
 
 # --- 2. PATHS (Centralizzati) ---
 BASE_DIR = Path(__file__).parent.parent.resolve()

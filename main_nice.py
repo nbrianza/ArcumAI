@@ -22,9 +22,10 @@ app.add_middleware(
 )
 
 # Import Logic
-from src.config import ARCHIVE_DIR, init_settings
+from src.config import ARCHIVE_DIR, init_settings, PROFILE, LLM_MODEL_NAME, EMBED_MODEL_NAME, CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP
 from src.auth import load_users, verify_password
 from src.engine import UserSession
+from src.logger import server_log as slog
 
 # Import UI Modules (Refactored)
 from src.ui.header import create_header
@@ -42,6 +43,12 @@ app.add_static_files('/documents', str(ARCHIVE_DIR))
 ASSETS_DIR = Path("assets")
 if not ASSETS_DIR.exists(): ASSETS_DIR.mkdir()
 app.add_static_files('/assets', str(ASSETS_DIR))
+
+
+# --- HEALTH CHECK ---
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "ArcumAI"}
 
 
 # --- ENDPOINT WEBSOCKET PER OUTLOOK ---
@@ -135,10 +142,13 @@ async def main_page():
     create_header(user_data, session, update_ui_on_mode_change)
 
 if __name__ in {"__main__", "__mp_main__"}:
-    print("🚀 Avvio Arcum AI (Refactored)...")
-
     storage_secret = os.getenv('STORAGE_SECRET', 'CHIAVE_SEGRETA_ARCUM_AI_V2_DEV_DEFAULT')
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', '8080'))
+
+    slog.info("Avvio Arcum AI")
+    slog.info(f"  Profile: {PROFILE} | LLM: {LLM_MODEL_NAME} | Embed: {EMBED_MODEL_NAME}")
+    slog.info(f"  Context: {CONTEXT_WINDOW} | Chunk: {CHUNK_SIZE}/{CHUNK_OVERLAP}")
+    slog.info(f"  Host: {host}:{port}")
 
     ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False, storage_secret=storage_secret)

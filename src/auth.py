@@ -3,6 +3,7 @@ import re
 import bcrypt
 from pathlib import Path
 from src.config import BASE_DIR
+from src.logger import server_log as slog
 
 USERS_FILE = BASE_DIR / "users.json"
 BCRYPT_ROUNDS = 12
@@ -56,7 +57,7 @@ def add_user(username, password, role, real_name, outlook_id=""):
     """Aggiunge o aggiorna un utente."""
     valid, msg = validate_password(password)
     if not valid:
-        print(f"❌ Password non valida per '{username}': {msg}")
+        slog.warning(f"[{username}] Password non valida: {msg}")
         return False
     users = load_users()
     users[username] = {
@@ -66,7 +67,7 @@ def add_user(username, password, role, real_name, outlook_id=""):
         "outlook_id": outlook_id
     }
     save_users(users)
-    print(f"✅ Utente '{username}' salvato con successo (Criptato).")
+    slog.info(f"[{username}] Utente salvato con successo.")
     return True
 
 def delete_user(username):
@@ -80,7 +81,7 @@ def delete_user(username):
 def update_password(username, new_password):
     valid, msg = validate_password(new_password)
     if not valid:
-        print(f"❌ Password non valida: {msg}")
+        slog.warning(f"[{username}] Password non valida: {msg}")
         return False
     users = load_users()
     if username in users:

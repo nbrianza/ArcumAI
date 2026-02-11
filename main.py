@@ -77,7 +77,9 @@ def read_and_chunk_file(file_path):
                 docs = [Document(text=text)]
         else: return None, "SKIP_EXT"
 
-        if not docs: return None, "EMPTY"
+        if not docs:
+            log.warning(f"   ⚠️ Nessun contenuto estratto da: {file_path.name} (ext: {ext})")
+            return None, "EMPTY"
 
         # LOG DETTAGLIATO LETTURA
         try: 
@@ -131,6 +133,7 @@ def main():
         accumulated_nodes = []
         files_to_move_ok = []
         processed_count = 0
+        failed_files = []
 
         log.info(f"🚀 Inizio elaborazione di {len(files)} file (Batch size: {BATCH_SIZE})...")
         
@@ -148,6 +151,7 @@ def main():
             nodes, status = read_and_chunk_file(file_path)
             
             if status == "ERROR" or status == "EMPTY":
+                failed_files.append((file_path.name, status))
                 sposta_file_con_struttura(file_path, INBOX_DIR, ERROR_DIR)
                 continue
             elif status == "SKIP_EXT":
@@ -215,6 +219,12 @@ def main():
 
         pulisci_cartelle_vuote(INBOX_DIR)
         log.info(f"🏁 Completato: {processed_count}/{len(files)} file archiviati.")
+
+        if failed_files:
+            log.warning(f"⚠️ {len(failed_files)} file falliti:")
+            for fname, reason in failed_files:
+                log.warning(f"   - {fname} ({reason})")
+            log.warning(f"   I file falliti sono stati spostati in: {ERROR_DIR}")
 
     except Exception as e:
         log.critical(f"🔥 CRASH MAIN: {e}", exc_info=True)

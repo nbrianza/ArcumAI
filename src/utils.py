@@ -5,7 +5,7 @@ import hashlib
 import stat
 import errno
 from pathlib import Path
-from .logger import log
+from .logger import log, server_log as slog
 
 # LlamaIndex Schema
 from llama_index.core.schema import TextNode
@@ -165,7 +165,7 @@ def load_global_triggers():
     if not trigger_path.exists():
         return []
 
-    print(f"📂 Caricamento Triggers RAG da: {trigger_path}")
+    slog.info(f"Caricamento Triggers RAG da: {trigger_path}")
     
     for file_path in trigger_path.glob("*.txt"):
         # --- MODIFICA IMPORTANTE: Escludiamo il file della chat ---
@@ -181,9 +181,9 @@ def load_global_triggers():
                     if word and not word.startswith("#"): 
                         all_keywords.add(word)
                         count += 1
-                print(f"   -> Caricati {count} trigger RAG da {file_path.name}")
+                slog.info(f"   Caricati {count} trigger RAG da {file_path.name}")
         except Exception as e:
-            print(f"   ❌ Errore lettura {file_path.name}: {e}")
+            slog.error(f"Errore lettura {file_path.name}: {e}")
 
     return list(all_keywords)
 
@@ -195,7 +195,7 @@ def load_chat_triggers():
     chat_keywords = set()
     
     if not chat_file.exists():
-        print("⚠️ File triggers/chat.txt non trovato. Uso default.")
+        slog.warning("File triggers/chat.txt non trovato. Uso default.")
         return ['ciao', 'hello', 'hallo', 'bonjour'] # Fallback minimo
 
     try:
@@ -204,8 +204,8 @@ def load_chat_triggers():
                 word = line.strip().lower()
                 if word and not word.startswith("#"):
                     chat_keywords.add(word)
-        print(f"💬 Caricati {len(chat_keywords)} trigger CHAT da chat.txt")
+        slog.info(f"Caricati {len(chat_keywords)} trigger CHAT da chat.txt")
     except Exception as e:
-        print(f"❌ Errore lettura chat.txt: {e}")
+        slog.error(f"Errore lettura chat.txt: {e}")
         
     return list(chat_keywords)

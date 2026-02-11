@@ -41,6 +41,7 @@ from src.config import (
 # Auth & Bridge
 from src.auth import load_users
 from src.bridge import bridge_manager
+from src.logger import server_log as slog
 
 
 # --- 1. CARICAMENTO MOTORI ---
@@ -71,7 +72,7 @@ def load_rag_engine(user_role="DEFAULT"):
         except: pass
 
     selected_prompt = ROLE_PROMPTS.get(user_role, DEFAULT_SYSTEM_PROMPT)
-    print(f"🎭 Engine RAG Caricato | Profilo: {user_role}")
+    slog.info(f"Engine RAG Caricato | Profilo: {user_role}")
 
     return ContextChatEngine.from_defaults(
         retriever=retriever,
@@ -164,7 +165,7 @@ class UserSession:
             """
             # Guardrail: Se la query è una domanda naturale, la puliamo
             if "?" in query or len(query.split()) > 6:
-                print(f"⚠️ AUTO-FIX EMAIL: Query '{query}' complessa. Resetto a vuota (ultime mail).")
+                slog.warning(f"[{self.username}] AUTO-FIX EMAIL: Query '{query}' complessa. Resetto a vuota (ultime mail).")
                 query = "" 
             
             return await _impl_read_email(self.outlook_id, query)
@@ -205,7 +206,7 @@ class UserSession:
         if self.agent_engine:
             return self.agent_engine
 
-        print("🔄 Costruzione Agente Outlook...")
+        slog.info(f"[{self.username}] Costruzione Agente Outlook...")
         
         # STRATEGIA A: WORKFLOW (Nuovo Standard)
         if WorkflowReActAgent:
@@ -216,10 +217,10 @@ class UserSession:
                     tools=self.tools,
                     system_prompt="Sei un assistente operativo. Usa i tool se richiesto, altrimenti rispondi."
                 )
-                print("✅ Agente caricato: WorkflowReActAgent")
+                slog.info(f"[{self.username}] Agente caricato: WorkflowReActAgent")
                 return self.agent_engine
             except Exception as e:
-                print(f"⚠️ Errore WorkflowReActAgent: {e}")
+                slog.warning(f"[{self.username}] Errore WorkflowReActAgent: {e}")
 
         # STRATEGIA B: LEGACY (Vecchio Standard)
         if LegacyReActAgent:
@@ -231,13 +232,13 @@ class UserSession:
                     verbose=True,
                     memory=ChatMemoryBuffer.from_defaults(token_limit=16384)
                 )
-                print("✅ Agente caricato: LegacyReActAgent")
+                slog.info(f"[{self.username}] Agente caricato: LegacyReActAgent")
                 return self.agent_engine
             except Exception as e:
-                print(f"⚠️ Errore LegacyReActAgent: {e}")
+                slog.warning(f"[{self.username}] Errore LegacyReActAgent: {e}")
 
         # FALLBACK
-        print("❌ FALLIMENTO CRITICO AGENTE. Uso Chat Semplice.")
+        slog.error(f"[{self.username}] FALLIMENTO CRITICO AGENTE. Uso Chat Semplice.")
         return await self.get_simple_engine()
 
     async def get_cloud_engine(self):
@@ -325,7 +326,7 @@ class UserSession:
         if used_mode == "CLOUD":
             final_input = (f"{history_str}\nISTRUZIONI: Usa la tua conoscenza globale.\nDOMANDA: {clean_query}")
         elif used_mode == "FILE READER" and has_file:
-             print(f"✅ LOCALE: Iniezione File ({len(self.uploaded_context)} chars).")
+             slog.info(f"[{self.username}] LOCALE: Iniezione File ({len(self.uploaded_context)} chars).")
              final_input = (
                  f"{history_str}\n"
                  f"ISTRUZIONI: Rispondi basandoti SUL SEGUENTE TESTO DEL FILE.\n"
@@ -335,7 +336,7 @@ class UserSession:
         else:
              final_input = (f"{history_str}\nDOMANDA UTENTE: {clean_query}")
 
-        print(f"⚙️ {used_mode} -> {clean_query[:40]}...")
+        slog.info(f"[{self.username}] {used_mode} -> {clean_query[:40]}...")
 
         # --- FIX ESECUZIONE: GESTIONE WORKFLOW vs CHAT ENGINE ---
         response_obj = None
@@ -359,7 +360,7 @@ class UserSession:
                 response_text = str(response_obj)
 
         except Exception as e:
-            print(f"❌ Errore esecuzione motore: {e}")
+            slog.error(f"[{self.username}] Errore esecuzione motore: {e}", exc_info=True)
             response_text = "Scusa, si è verificato un errore tecnico nel processare la richiesta."
 
         self.global_history.append(ChatMessage(role=MessageRole.USER, content=clean_query))

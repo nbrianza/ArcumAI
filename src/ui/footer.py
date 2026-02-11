@@ -10,6 +10,7 @@ from nicegui import ui, run  # <--- ADDED 'run'
 from src.readers import SmartPDFReader
 from src.utils import find_relative_path
 from src.config import ARCHIVE_DIR
+from src.logger import server_log as slog
 
 MAX_INPUT_LENGTH = 4000
 RATE_LIMIT_MESSAGES = 20   # max messages per window
@@ -60,7 +61,14 @@ def create_footer(session, user_data, chat_container, mode_display):
                 
                 if not filename: filename = "upload_senza_nome.pdf"
 
-                print(f"📥 UPLOAD START: {filename}")
+                # Server-side file extension validation
+                allowed_ext = {'.pdf', '.txt', '.md'}
+                file_ext = Path(filename).suffix.lower()
+                if file_ext not in allowed_ext:
+                    ui.notify(f'Tipo file non supportato: {file_ext}', type='negative')
+                    return
+
+                slog.info(f"[{user_data.get('username', '?')}] UPLOAD START: {filename}")
                 ui.notify(f'Analyzing {filename}...', type='info')
                 mode_display.text = "⏳ Analisi File..."
                 mode_display.classes(replace='text-orange-500')
@@ -111,11 +119,11 @@ def create_footer(session, user_data, chat_container, mode_display):
                     mode_display.text = f"📄 File: {filename[:15]}..."
                     mode_display.classes(replace='text-blue-600')
                     
-                    print(f"✅ UPLOAD COMPLETE. Context size: {len(session.uploaded_context)}")
+                    slog.info(f"[{user_data.get('username', '?')}] UPLOAD COMPLETE. Context size: {len(session.uploaded_context)}")
                     ui.notify('✅ Document analyzed! Ask away.', type='positive')
                     
                 except Exception as err:
-                    print(f"❌ Error Upload: {traceback.format_exc()}")
+                    slog.error(f"[{user_data.get('username', '?')}] Error Upload", exc_info=True)
                     ui.notify(f'Error: {str(err)}', type='negative')
                     mode_display.text = "❌ Errore Caricamento"
                     mode_display.classes(replace='text-red-600')
@@ -208,7 +216,7 @@ def create_footer(session, user_data, chat_container, mode_display):
                 except Exception as e:
                     try: spinner.delete()
                     except: pass
-                    print(f"❌ Error Chat: {traceback.format_exc()}")
+                    slog.error(f"[{user_data.get('username', '?')}] Error Chat", exc_info=True)
                     err_msg = str(e)
                     if "ReadTimeout" in err_msg:
                         err_msg = "⏳ Il documento è troppo complesso. Riprova."
