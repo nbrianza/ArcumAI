@@ -123,9 +123,9 @@ def create_footer(session, user_data, chat_container, mode_display):
                             sources_row = ui.row().classes('gap-2 mt-2 flex-wrap')
 
                 try:
-                    # Execute Logic
-                    response, used_mode = await session.run_chat_action(text)
-                    
+                    # Execute Logic - Now returns (response_obj, response_text, used_mode)
+                    response_obj, response_text, used_mode = await session.run_chat_action(text)
+
                     # Update Sidebar State
                     if used_mode == "CLOUD":
                         mode_display.text = "☁️ Gemini Cloud"
@@ -139,18 +139,18 @@ def create_footer(session, user_data, chat_container, mode_display):
                     else:
                         mode_display.text = "🟢 Chat Locale"
                         mode_display.classes(replace='text-green-600')
-                    
+
                     try: spinner.delete()
                     except: pass
-                    
-                    response_area.set_content(str(response) or "⚠️ Risposta vuota.")
-                    
-                    # Show Sources (RAG Only)
-                    if not session.is_cloud and used_mode == "RAG" and hasattr(response, "source_nodes"):
+
+                    response_area.set_content(response_text or "⚠️ Risposta vuota.")
+
+                    # Show Sources (RAG Only) - Now checking response_obj instead of response
+                    if not session.is_cloud and used_mode == "RAG" and response_obj and hasattr(response_obj, "source_nodes"):
                         seen = set()
-                        with sources_row: 
+                        with sources_row:
                             ui.label("📚 Fonti:").classes('text-xs font-bold text-gray-700 mr-2 self-center opacity-70')
-                            for node in response.source_nodes:
+                            for node in response_obj.source_nodes:
                                 fname = node.metadata.get("filename", "Doc")
                                 meta_path = node.metadata.get("file_path") 
                                 if fname not in seen:

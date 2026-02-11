@@ -337,32 +337,33 @@ class UserSession:
 
         print(f"⚙️ {used_mode} -> {clean_query[:40]}...")
 
-        if hasattr(engine, 'memory') and engine.memory: engine.memory.reset()
-        
         # --- FIX ESECUZIONE: GESTIONE WORKFLOW vs CHAT ENGINE ---
-        response = ""
+        response_obj = None
+        response_text = ""
+
         try:
             # Caso 1: È un Workflow Agent (Nuovo)
             if hasattr(engine, 'run'):
                 # I workflow usano .run() invece di .achat()
                 response_obj = await engine.run(user_msg=final_input)
-                response = str(response_obj)
-            
+                response_text = str(response_obj)
+
             # Caso 2: È un Chat Engine (Vecchio o Simple)
             elif hasattr(engine, 'achat'):
                 response_obj = await engine.achat(final_input)
-                response = str(response_obj)
-            
+                response_text = str(response_obj)
+
             # Caso 3: Fallback sincrono
             else:
                 response_obj = await run.io_bound(engine.chat, final_input)
-                response = str(response_obj)
+                response_text = str(response_obj)
 
         except Exception as e:
             print(f"❌ Errore esecuzione motore: {e}")
-            response = "Scusa, si è verificato un errore tecnico nel processare la richiesta."
+            response_text = "Scusa, si è verificato un errore tecnico nel processare la richiesta."
 
         self.global_history.append(ChatMessage(role=MessageRole.USER, content=clean_query))
-        self.global_history.append(ChatMessage(role=MessageRole.ASSISTANT, content=str(response)))
+        self.global_history.append(ChatMessage(role=MessageRole.ASSISTANT, content=response_text))
 
-        return response, used_mode
+        # Return both the raw object (for source_nodes) and the text
+        return response_obj, response_text, used_mode

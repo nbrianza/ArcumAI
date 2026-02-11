@@ -124,4 +124,9 @@ async def main_page():
 
 if __name__ in {"__main__", "__mp_main__"}:
     print("🚀 Avvio Arcum AI (Refactored)...")
-    ui.run(title='Arcum AI', host='0.0.0.0', port=8080, favicon='🛡️', reload=False, storage_secret='CHIAVE_SEGRETA_ARCUM_AI_V2')
+
+    # Load storage secret from environment (fallback to default for dev)
+    import os
+    storage_secret = os.getenv('STORAGE_SECRET', 'CHIAVE_SEGRETA_ARCUM_AI_V2_DEV_DEFAULT')
+
+    ui.run(title='Arcum AI', host='0.0.0.0', port=8080, favicon='🛡️', reload=False, storage_secret=storage_secret)

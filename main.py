@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 # LlamaIndex & Chroma
-from llama_index.core import VectorStoreIndex, StorageContext, Settings
+from llama_index.core import VectorStoreIndex, StorageContext, Settings, Document
 from llama_index.readers.file import DocxReader, PandasExcelReader
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -70,6 +70,11 @@ def read_and_chunk_file(file_path):
         elif ext == ".xlsx": docs = PandasExcelReader(pandas_config={"header": 0}).load_data(file_path)
         elif ext == ".msg": docs = MyOutlookReader().load_data(file_path)
         elif ext == ".eml": docs = MyEmlReader().load_data(file_path)
+        elif ext in [".txt", ".md"]:
+            # Plain text and Markdown files
+            text = file_path.read_text(encoding='utf-8', errors='ignore')
+            if text.strip():  # Only if not empty
+                docs = [Document(text=text)]
         else: return None, "SKIP_EXT"
 
         if not docs: return None, "EMPTY"
