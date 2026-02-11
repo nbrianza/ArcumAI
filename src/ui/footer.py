@@ -1,12 +1,45 @@
+import re
+import time
 import traceback
 import nest_asyncio
 from pathlib import Path
+from collections import defaultdict
 from urllib.parse import quote
 from nicegui import ui, run  # <--- ADDED 'run'
 
 from src.readers import SmartPDFReader
 from src.utils import find_relative_path
 from src.config import ARCHIVE_DIR
+
+MAX_INPUT_LENGTH = 4000
+RATE_LIMIT_MESSAGES = 20   # max messages per window
+RATE_LIMIT_WINDOW = 60     # window in seconds
+# Control characters except \n \r \t
+_CONTROL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+# Per-user rate limiter (in-memory)
+_user_timestamps: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_rate_limit(username: str) -> bool:
+    """Restituisce True se l'utente puo' inviare, False se ha superato il limite."""
+    now = time.time()
+    timestamps = _user_timestamps[username]
+    # Purge expired entries
+    _user_timestamps[username] = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+    if len(_user_timestamps[username]) >= RATE_LIMIT_MESSAGES:
+        return False
+    _user_timestamps[username].append(now)
+    return True
+
+
+def sanitize_input(text: str) -> str:
+    """Sanitizza l'input utente: rimuove caratteri di controllo, limita lunghezza."""
+    text = _CONTROL_CHARS.sub('', text)
+    text = text.strip()
+    if len(text) > MAX_INPUT_LENGTH:
+        text = text[:MAX_INPUT_LENGTH]
+    return text
 
 def create_footer(session, user_data, chat_container, mode_display):
     
@@ -98,9 +131,12 @@ def create_footer(session, user_data, chat_container, mode_display):
 
             # --- 2. SEND MESSAGE HANDLER ---
             async def send_message():
-                text = input_field.value
+                text = sanitize_input(input_field.value or "")
                 if not text: return
-                input_field.value = '' 
+                if not _check_rate_limit(user_data.get('username', 'anon')):
+                    ui.notify('Troppi messaggi. Attendi un momento.', type='warning')
+                    return
+                input_field.value = ''
                 
                 # Render User Message
                 with chat_container:

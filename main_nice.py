@@ -1,13 +1,25 @@
+import os
 from fastapi import WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from src.bridge import bridge_manager
 from pathlib import Path
 from nicegui import ui, app
 
 # Setup Ambiente
 from dotenv import load_dotenv
-load_dotenv() 
+load_dotenv()
 import nest_asyncio
 nest_asyncio.apply()
+
+# --- CORS Configuration ---
+ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:8080').split(',')
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in ALLOWED_ORIGINS],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # Import Logic
 from src.config import ARCHIVE_DIR, init_settings
@@ -125,8 +137,8 @@ async def main_page():
 if __name__ in {"__main__", "__mp_main__"}:
     print("🚀 Avvio Arcum AI (Refactored)...")
 
-    # Load storage secret from environment (fallback to default for dev)
-    import os
     storage_secret = os.getenv('STORAGE_SECRET', 'CHIAVE_SEGRETA_ARCUM_AI_V2_DEV_DEFAULT')
+    host = os.getenv('HOST', '0.0.0.0')
+    port = int(os.getenv('PORT', '8080'))
 
-    ui.run(title='Arcum AI', host='0.0.0.0', port=8080, favicon='🛡️', reload=False, storage_secret=storage_secret)
+    ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False, storage_secret=storage_secret)

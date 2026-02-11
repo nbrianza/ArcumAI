@@ -1,9 +1,25 @@
 import json
+import re
 import bcrypt
 from pathlib import Path
 from src.config import BASE_DIR
 
 USERS_FILE = BASE_DIR / "users.json"
+BCRYPT_ROUNDS = 12
+
+# Password policy
+MIN_PASSWORD_LENGTH = 8
+PASSWORD_PATTERN = re.compile(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$')
+
+
+def validate_password(password: str) -> tuple[bool, str]:
+    """Verifica che la password rispetti i requisiti minimi di sicurezza."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return False, f"La password deve essere di almeno {MIN_PASSWORD_LENGTH} caratteri."
+    if not PASSWORD_PATTERN.match(password):
+        return False, "La password deve contenere almeno una maiuscola, una minuscola e un numero."
+    return True, ""
+
 
 def load_users():
     """Carica il database utenti."""
@@ -22,11 +38,10 @@ def save_users(users_data):
 
 def hash_password(plain_password):
     """Trasforma una password in chiaro in un hash sicuro."""
-    # bcrypt richiede byte, quindi codifichiamo
-    bytes = plain_password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(bytes, salt)
-    return hashed.decode('utf-8') # Salviamo come stringa
+    pw_bytes = plain_password.encode('utf-8')
+    salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    hashed = bcrypt.hashpw(pw_bytes, salt)
+    return hashed.decode('utf-8')
 
 def verify_password(plain_password, hashed_password):
     """Controlla se la password corrisponde all'hash."""
@@ -34,19 +49,25 @@ def verify_password(plain_password, hashed_password):
         plain_bytes = plain_password.encode('utf-8')
         hashed_bytes = hashed_password.encode('utf-8')
         return bcrypt.checkpw(plain_bytes, hashed_bytes)
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
-def add_user(username, password, role, real_name):
+def add_user(username, password, role, real_name, outlook_id=""):
     """Aggiunge o aggiorna un utente."""
+    valid, msg = validate_password(password)
+    if not valid:
+        print(f"❌ Password non valida per '{username}': {msg}")
+        return False
     users = load_users()
     users[username] = {
-        "pw_hash": hash_password(password), # Salviamo SOLO l'hash
+        "pw_hash": hash_password(password),
         "role": role,
-        "name": real_name
+        "name": real_name,
+        "outlook_id": outlook_id
     }
     save_users(users)
     print(f"✅ Utente '{username}' salvato con successo (Criptato).")
+    return True
 
 def delete_user(username):
     users = load_users()
@@ -57,6 +78,10 @@ def delete_user(username):
     return False
 
 def update_password(username, new_password):
+    valid, msg = validate_password(new_password)
+    if not valid:
+        print(f"❌ Password non valida: {msg}")
+        return False
     users = load_users()
     if username in users:
         users[username]["pw_hash"] = hash_password(new_password)

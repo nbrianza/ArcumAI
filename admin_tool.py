@@ -39,7 +39,9 @@ def main():
                     for u, data in users.items():
                         role = data.get('role', 'N/A')
                         name = data.get('name', 'Sconosciuto')
-                        print(f"   👤 User: {u:<15} | Ruolo: {role:<10} | Nome: {name}")
+                        outlook = data.get('outlook_id', '')
+                        outlook_str = f" | Outlook: {outlook}" if outlook else ""
+                        print(f"   👤 User: {u:<15} | Ruolo: {role:<10} | Nome: {name}{outlook_str}")
             
             elif choice == "2":
                 print("\n📝 NUOVO UTENTE")
@@ -60,8 +62,12 @@ def main():
                     print(f"   ⚠️ Ruolo non riconosciuto. Imposto default: {VALID_ROLES[0]}")
                     role = VALID_ROLES[0]
                 
-                add_user(username, password, role, name)
-                print(f"   ✅ Utente {username} ({role}) salvato.")
+                outlook_id = input("   Outlook ID (vuoto se non collegato): ").strip()
+
+                if add_user(username, password, role, name, outlook_id):
+                    print(f"   ✅ Utente {username} ({role}) salvato.")
+                else:
+                    print(f"   ❌ Utente non salvato. Controlla i requisiti della password.")
             
             elif choice == "3":
                 username = input("\n🗑️  Username da eliminare: ")
