@@ -1,11 +1,14 @@
 import asyncio
 import json
+import os
 import uuid
 from typing import Dict, Any
 from fastapi import WebSocket
 
 # Usiamo il server_log definito in src/logger.py
-from src.logger import server_log as log 
+from src.logger import server_log as log
+
+BRIDGE_TIMEOUT = float(os.getenv("BRIDGE_TIMEOUT", "60.0"))
 
 class OutlookBridgeManager:
     def __init__(self):
@@ -23,7 +26,17 @@ class OutlookBridgeManager:
     def disconnect(self, user_id: str):
         if user_id in self.active_connections:
             del self.active_connections[user_id]
-            log.info(f"🔌 Bridge: Utente '{user_id}' disconnesso.")
+
+        # Fail-fast: cancel all pending requests for this user
+        failed = []
+        for req_id, future in list(self.pending_requests.items()):
+            if not future.done():
+                future.set_result(f"Connessione Outlook persa per '{user_id}'.")
+                failed.append(req_id)
+        for req_id in failed:
+            del self.pending_requests[req_id]
+
+        log.info(f"🔌 Bridge: Utente '{user_id}' disconnesso. {len(failed)} richieste pendenti annullate.")
 
     async def send_mcp_request(self, user_id: str, tool_name: str, args: dict) -> Any:
         """
@@ -64,14 +77,14 @@ class OutlookBridgeManager:
             log.info(f"📤 MCP TX [{user_id}]: {json_str}") 
             # ---------------------------
 
-            # 5. Aspetta la risposta (Timeout 30s)
-            result = await asyncio.wait_for(future, timeout=30.0)
+            # 5. Aspetta la risposta
+            result = await asyncio.wait_for(future, timeout=BRIDGE_TIMEOUT)
             return result
 
         except asyncio.TimeoutError:
             if request_id in self.pending_requests:
                 del self.pending_requests[request_id]
-            err_msg = f"⚠️ Timeout Bridge: Outlook di {user_id} non ha risposto in 30s."
+            err_msg = f"⚠️ Timeout Bridge: Outlook di {user_id} non ha risposto in {BRIDGE_TIMEOUT}s."
             log.error(err_msg)
             return err_msg
             
@@ -106,9 +119,13 @@ class OutlookBridgeManager:
                     
                     del self.pending_requests[req_id]
             
-            # Eventi Push (Notifiche dal client, es. "closing")
+            # Eventi Push (Notifiche dal client)
             elif "method" in data:
-                 log.info(f"🔔 Notifica da Outlook ({user_id}): {data['method']}")
+                method = data["method"]
+                if method == "heartbeat":
+                    log.debug(f"Heartbeat da {user_id}")
+                else:
+                    log.info(f"🔔 Notifica da Outlook ({user_id}): {method}")
 
         except Exception as e:
             log.error(f"❌ Errore parsing messaggio da {user_id}: {e}", exc_info=True)

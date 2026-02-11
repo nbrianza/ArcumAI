@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Outlook = Microsoft.Office.Interop.Outlook;
@@ -160,7 +161,7 @@ namespace ArcumAI.OutlookAddIn
             }
         }
 
-        private void OnMessageFromArcum(object sender, string json)
+        private async void OnMessageFromArcum(object sender, string json)
         {
             try
             {
@@ -216,7 +217,7 @@ namespace ArcumAI.OutlookAddIn
 
                 string responseJson = response.ToString(Formatting.None);
                 Log("DEBUG", $"TX: {responseJson}");
-                _transport.SendAsync(responseJson);
+                await _transport.SendAsync(responseJson);
             }
             catch (Exception ex)
             {
@@ -229,10 +230,15 @@ namespace ArcumAI.OutlookAddIn
         private List<string> GetEmails(string query)
         {
             var results = new List<string>();
+            Outlook.NameSpace session = null;
+            Outlook.MAPIFolder inbox = null;
+            Outlook.Items items = null;
+
             try
             {
-                Outlook.MAPIFolder inbox = Application.Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-                Outlook.Items items = inbox.Items;
+                session = Application.Session;
+                inbox = session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+                items = inbox.Items;
                 items.Sort("[ReceivedTime]", true);
 
                 int count = 0;
@@ -241,19 +247,26 @@ namespace ArcumAI.OutlookAddIn
 
                 foreach (object item in items)
                 {
-                    if (item is Outlook.MailItem mail)
+                    try
                     {
-                        if (!string.IsNullOrEmpty(query))
+                        if (item is Outlook.MailItem mail)
                         {
-                            string searchContent = (mail.Subject + " " + mail.SenderName).ToLower();
-                            if (!searchContent.Contains(query.ToLower())) continue;
-                        }
+                            if (!string.IsNullOrEmpty(query))
+                            {
+                                string searchContent = (mail.Subject + " " + mail.SenderName).ToLower();
+                                if (!searchContent.Contains(query.ToLower())) continue;
+                            }
 
-                        string snippet = mail.Body != null && mail.Body.Length > previewLen
-                            ? mail.Body.Substring(0, previewLen) + "..."
-                            : mail.Body;
-                        results.Add($"[{mail.ReceivedTime:g}] DA: {mail.SenderName} | OGGETTO: {mail.Subject} | ANTEPRIMA: {snippet}");
-                        count++;
+                            string snippet = mail.Body != null && mail.Body.Length > previewLen
+                                ? mail.Body.Substring(0, previewLen) + "..."
+                                : mail.Body;
+                            results.Add($"[{mail.ReceivedTime:g}] DA: {mail.SenderName} | OGGETTO: {mail.Subject} | ANTEPRIMA: {snippet}");
+                            count++;
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(item);
                     }
                     if (count >= maxResults) break;
                 }
@@ -265,16 +278,28 @@ namespace ArcumAI.OutlookAddIn
                 results.Add($"Errore lettura mail: {ex.Message}");
                 Log("ERROR", $"GetEmails errore: {ex.Message}");
             }
+            finally
+            {
+                if (items != null) Marshal.ReleaseComObject(items);
+                if (inbox != null) Marshal.ReleaseComObject(inbox);
+                if (session != null) Marshal.ReleaseComObject(session);
+            }
             return results;
         }
 
         private List<string> GetCalendar(string filter)
         {
             var results = new List<string>();
+            Outlook.NameSpace session = null;
+            Outlook.MAPIFolder calendar = null;
+            Outlook.Items items = null;
+            Outlook.Items restrictedItems = null;
+
             try
             {
-                Outlook.MAPIFolder calendar = Application.Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderCalendar);
-                Outlook.Items items = calendar.Items;
+                session = Application.Session;
+                calendar = session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderCalendar);
+                items = calendar.Items;
                 items.Sort("[Start]");
                 items.IncludeRecurrences = true;
 
@@ -296,11 +321,21 @@ namespace ArcumAI.OutlookAddIn
                 }
 
                 string filterString = $"[Start] >= '{start:g}' AND [Start] < '{end:g}'";
-                Outlook.Items restrictedItems = items.Restrict(filterString);
+                restrictedItems = items.Restrict(filterString);
 
-                foreach (Outlook.AppointmentItem appt in restrictedItems)
+                foreach (object item in restrictedItems)
                 {
-                    results.Add($"[{appt.Start:t} - {appt.End:t}] {appt.Subject} @ {appt.Location}");
+                    try
+                    {
+                        if (item is Outlook.AppointmentItem appt)
+                        {
+                            results.Add($"[{appt.Start:t} - {appt.End:t}] {appt.Subject} @ {appt.Location}");
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(item);
+                    }
                 }
 
                 Log("INFO", $"GetCalendar: trovati {results.Count} appuntamenti per filtro '{filter}'");
@@ -310,12 +345,21 @@ namespace ArcumAI.OutlookAddIn
                 results.Add($"Errore calendario: {ex.Message}");
                 Log("ERROR", $"GetCalendar errore: {ex.Message}");
             }
+            finally
+            {
+                if (restrictedItems != null) Marshal.ReleaseComObject(restrictedItems);
+                if (items != null) Marshal.ReleaseComObject(items);
+                if (calendar != null) Marshal.ReleaseComObject(calendar);
+                if (session != null) Marshal.ReleaseComObject(session);
+            }
 
             if (results.Count == 0) results.Add("Nessun appuntamento trovato.");
             return results;
         }
 
         // --- LOGGING ---
+
+        private const long MAX_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
 
         private void Log(string level, string message)
         {
@@ -332,6 +376,18 @@ namespace ArcumAI.OutlookAddIn
                 string directory = Path.GetDirectoryName(logPath);
                 if (!Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
+
+                // Log rotation: if file exceeds MAX_LOG_SIZE, rotate
+                if (File.Exists(logPath))
+                {
+                    var info = new FileInfo(logPath);
+                    if (info.Length > MAX_LOG_SIZE)
+                    {
+                        string oldPath = logPath + ".old";
+                        if (File.Exists(oldPath)) File.Delete(oldPath);
+                        File.Move(logPath, oldPath);
+                    }
+                }
 
                 string entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}";
                 File.AppendAllText(logPath, entry);

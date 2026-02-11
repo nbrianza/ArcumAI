@@ -52,17 +52,33 @@ async def health_check():
 
 
 # --- ENDPOINT WEBSOCKET PER OUTLOOK ---
-# L'app NiceGUI espone l'oggetto 'app' che è un'istanza FastAPI
+def _is_valid_outlook_id(user_id: str) -> bool:
+    """Verifica che user_id sia un outlook_id registrato e univoco in users.json."""
+    if not user_id or len(user_id) > 100:
+        return False
+    users = load_users()
+    matches = [name for name, data in users.items() if data.get("outlook_id") == user_id]
+    if len(matches) == 0:
+        return False
+    if len(matches) > 1:
+        slog.error(f"ERRORE CONFIG: outlook_id '{user_id}' duplicato per utenti: {matches}. Connessione rifiutata.")
+        return False
+    return True
+
 @app.websocket("/ws/outlook/{user_id}")
 async def outlook_endpoint(websocket: WebSocket, user_id: str):
     """
     Endpoint a cui si collega il plugin C#.
     URL: ws://tuo-server:8080/ws/outlook/nome_utente
     """
+    if not _is_valid_outlook_id(user_id):
+        slog.warning(f"WS rejected: outlook_id '{user_id}' non registrato.")
+        await websocket.close(code=4001, reason="Outlook ID non autorizzato")
+        return
+
     await bridge_manager.connect(websocket, user_id)
     try:
         while True:
-            # Loop infinito di ascolto
             data = await websocket.receive_text()
             await bridge_manager.handle_incoming_message(user_id, data)
     except WebSocketDisconnect:
