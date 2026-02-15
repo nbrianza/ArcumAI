@@ -11,7 +11,7 @@ from .logger import log, server_log as slog
 from llama_index.core.schema import TextNode
 
 def calcola_hash_file(file_path):
-    """Calcola l'hash MD5 del file."""
+    """Calculates the MD5 hash of the file."""
     hasher = hashlib.md5()
     try:
         with open(file_path, 'rb') as f:
@@ -25,10 +25,10 @@ def calcola_hash_file(file_path):
 
 def sposta_file_con_struttura(file_path: Path, root_src: Path, root_dst: Path, max_retries=3):
     """
-    Sposta un file mantenendo la struttura delle cartelle.
-    Include logica di RETRY in caso di file occupato (PermissionError).
+    Moves a file while preserving the folder structure.
+    Includes RETRY logic for busy files (PermissionError).
     """
-    # 1. Calcola percorso destinazione relativo
+    # 1. Calculate relative destination path
     try:
         rel_path = file_path.relative_to(root_src)
     except ValueError:
@@ -37,49 +37,48 @@ def sposta_file_con_struttura(file_path: Path, root_src: Path, root_dst: Path, m
     target_path = root_dst / rel_path
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 2. Gestione collisione nomi (Rinomina con timestamp)
+    # 2. Handle name collisions (Rename with timestamp)
     if target_path.exists():
         timestamp = int(time.time())
         new_name = f"{target_path.stem}_{timestamp}{target_path.suffix}"
         target_path = target_path.with_name(new_name)
 
-    # 3. Tentativo di spostamento con Retry
+    # 3. Move attempt with Retry
     last_error = None
     for attempt in range(max_retries):
         try:
             shutil.move(str(file_path), str(target_path))
-            return target_path # Successo!
+            return target_path # Success!
         except PermissionError as e:
             last_error = e
-            log.warning(f"   ⏳ File in uso: {file_path.name} (Tentativo {attempt+1}/{max_retries})...")
+            log.warning(f"   ⏳ File in use: {file_path.name} (Attempt {attempt+1}/{max_retries})...")
             time.sleep(2)
         except Exception as e:
-            # Altri errori (es. disco pieno) non ha senso riprovare subito
+            # Other errors (e.g. full disk) no point retrying immediately
             raise e
 
-    # Se siamo qui, i tentativi sono finiti
-    log.error(f"   💀 Impossibile spostare {file_path.name} dopo {max_retries} tentativi.")
+    # If we're here, all attempts exhausted
+    log.error(f"   💀 Unable to move {file_path.name} after {max_retries} attempts.")
     raise last_error
 
 def handle_remove_readonly(func, path, exc):
-    """Callback per sbloccare i file Read-Only su Windows."""
+    """Callback to unlock Read-Only files on Windows."""
     excvalue = exc[1]
     if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == errno.EACCES:
         os.chmod(path, stat.S_IWRITE)
         func(path)
 
 def pulisci_cartelle_vuote(root_dir: Path):
-    """Rimuove ricorsivamente le cartelle vuote."""
-    # (Logica identica a prima, riduco log per pulizia console)
-    junk_files = {"Thumbs.db", "desktop.ini", ".DS_Store"} 
-    
+    """Recursively removes empty folders."""
+    junk_files = {"Thumbs.db", "desktop.ini", ".DS_Store"}
+
     candidates = []
     for root, dirs, files in os.walk(root_dir):
         for name in dirs:
             candidates.append(Path(root) / name)
-    
+
     candidates.sort(key=lambda p: len(p.parts), reverse=True)
-    
+
     removed_count = 0
     for folder in candidates:
         if not folder.exists(): continue
@@ -93,28 +92,28 @@ def pulisci_cartelle_vuote(root_dir: Path):
                     if item.is_file() and item.name not in junk_files and not item.name.startswith("._"):
                         is_effectively_empty = False
                         break
-            
+
             if is_effectively_empty:
                 shutil.rmtree(folder, ignore_errors=False, onerror=handle_remove_readonly)
                 removed_count += 1
         except Exception:
             pass
-            
+
     if removed_count > 0:
-        log.info(f"   🧹 Pulizia: Rimosse {removed_count} cartelle vuote in {root_dir.name}.")
+        log.info(f"   🧹 Cleanup: Removed {removed_count} empty folders in {root_dir.name}.")
 
 def get_all_nodes_from_chroma(chroma_collection):
-    """Recupera TUTTI i dati dalla collezione ChromaDB."""
-    log.info("   ⏳ Recupero dati da ChromaDB...")
+    """Retrieves ALL data from the ChromaDB collection."""
+    log.info("   ⏳ Retrieving data from ChromaDB...")
     try:
         db_data = chroma_collection.get(include=["documents", "metadatas"])
         ids = db_data.get("ids", [])
         texts = db_data.get("documents", [])
         metadatas = db_data.get("metadatas", [])
-        
+
         if not ids:
             return []
-            
+
         all_nodes = []
         for i in range(len(ids)):
             node = TextNode(
@@ -125,78 +124,78 @@ def get_all_nodes_from_chroma(chroma_collection):
             all_nodes.append(node)
         return all_nodes
     except Exception as e:
-        log.error(f"❌ Errore recupero nodi: {e}")
+        log.error(f"❌ Error retrieving nodes: {e}")
         return []
-    
-    # --- AGGIUNTE PER ARCUM AI HYBRID UI ---
+
+    # --- ADDITIONS FOR ARCUM AI HYBRID UI ---
 
 from src.config import ARCHIVE_DIR
 
 def find_relative_path(filename: str) -> str:
     """
-    Cerca il file ricorsivamente dentro ARCHIVE_DIR e restituisce 
-    il percorso relativo normalizzato per il web.
-    Usato dalla UI per generare i link ai PDF.
+    Searches for the file recursively inside ARCHIVE_DIR and returns
+    the normalized relative path for the web.
+    Used by the UI to generate links to PDFs.
     """
     try:
-        # rglob cerca in tutte le sottocartelle
+        # rglob searches in all subfolders
         matches = list(ARCHIVE_DIR.rglob(filename))
         if matches:
-            # Prendi il primo match e calcola il percorso relativo
+            # Take the first match and calculate the relative path
             rel_path = matches[0].relative_to(ARCHIVE_DIR)
-            # Normalizza slash per Windows/Web
+            # Normalize slashes for Windows/Web
             return str(rel_path).replace('\\', '/')
     except Exception:
         pass
     return filename
 
 
-# --- AGGIORNAMENTO SU src/utils.py ---
+# --- UPDATE ON src/utils.py ---
 from pathlib import Path
 
 def load_global_triggers():
     """
-    Carica le parole chiave RAG (Documenti) dai file .txt nella cartella 'triggers',
-    ESCLUDENDO il file 'chat.txt'.
+    Loads RAG (Document) keywords from .txt files in the 'triggers' folder,
+    EXCLUDING the 'chat.txt' file.
     """
     trigger_path = Path(__file__).parent.parent / "triggers"
     all_keywords = set()
-    
+
     if not trigger_path.exists():
         return []
 
-    slog.info(f"Caricamento Triggers RAG da: {trigger_path}")
-    
+    slog.info(f"Loading RAG Triggers from: {trigger_path}")
+
     for file_path in trigger_path.glob("*.txt"):
-        # --- MODIFICA IMPORTANTE: Escludiamo il file della chat ---
+        # --- IMPORTANT: Exclude the chat file ---
         if "chat.txt" in file_path.name:
-            continue 
+            continue
         # ---------------------------------------------------------
-        
+
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 count = 0
                 for line in f:
                     word = line.strip().lower()
-                    if word and not word.startswith("#"): 
+                    if word and not word.startswith("#"):
                         all_keywords.add(word)
                         count += 1
-                slog.info(f"   Caricati {count} trigger RAG da {file_path.name}")
+                slog.info(f"   Loaded {count} RAG triggers from {file_path.name}")
         except Exception as e:
-            slog.error(f"Errore lettura {file_path.name}: {e}")
+            slog.error(f"Error reading {file_path.name}: {e}")
 
     return list(all_keywords)
 
 def load_chat_triggers():
     """
-    Carica SOLO le parole chiave per la Chat Semplice da triggers/chat.txt
+    Loads ONLY the keywords for Simple Chat from triggers/chat.txt
     """
     chat_file = Path(__file__).parent.parent / "triggers" / "chat.txt"
     chat_keywords = set()
-    
+
     if not chat_file.exists():
-        slog.warning("File triggers/chat.txt non trovato. Uso default.")
-        return ['ciao', 'hello', 'hallo', 'bonjour'] # Fallback minimo
+        slog.warning("File triggers/chat.txt not found. Using defaults.")
+        return ['ciao', 'hello', 'hallo', 'bonjour'] # Minimal fallback
 
     try:
         with open(chat_file, "r", encoding="utf-8") as f:
@@ -204,8 +203,8 @@ def load_chat_triggers():
                 word = line.strip().lower()
                 if word and not word.startswith("#"):
                     chat_keywords.add(word)
-        slog.info(f"Caricati {len(chat_keywords)} trigger CHAT da chat.txt")
+        slog.info(f"Loaded {len(chat_keywords)} CHAT triggers from chat.txt")
     except Exception as e:
-        slog.error(f"Errore lettura chat.txt: {e}")
-        
+        slog.error(f"Error reading chat.txt: {e}")
+
     return list(chat_keywords)

@@ -6,7 +6,7 @@ from llama_index.llms.ollama import Ollama
 from llama_index.core import Settings
 from llama_index.core.node_parser import SentenceSplitter
 
-# --- 1. PROFILI HARDWARE ---
+# --- 1. HARDWARE PROFILES ---
 # Profile selects defaults; individual values can be overridden via .env
 PROFILE = os.getenv("PROFILE", "LOW_RESOURCE")
 
@@ -34,7 +34,7 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", _defaults["CHUNK_OVERLAP"]))
 RETRIEVER_TOP_K = int(os.getenv("RETRIEVER_TOP_K", _defaults["RETRIEVER_TOP_K"]))
 FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", _defaults["FINAL_TOP_K"]))
 
-# --- 2. PATHS (Centralizzati) ---
+# --- 2. PATHS (Centralized) ---
 BASE_DIR = Path(__file__).parent.parent.resolve()
 
 INBOX_DIR = BASE_DIR / "data_nuovi"
@@ -42,61 +42,61 @@ ARCHIVE_DIR = BASE_DIR / "data_archivio"
 ERROR_DIR = BASE_DIR / "data_error"
 DUPLICATES_DIR = BASE_DIR / "data_duplicati"
 
-# --- CORREZIONE QUI ---
-CHROMA_PATH = BASE_DIR / "chroma_db"  # Nome usato da app.py
-DB_PATH = CHROMA_PATH                 # Alias per compatibilità con main.py (se serve)
+# --- FIX HERE ---
+CHROMA_PATH = BASE_DIR / "chroma_db"  # Name used by app.py
+DB_PATH = CHROMA_PATH                 # Alias for compatibility with main.py
 # ----------------------
 
 BM25_PATH = BASE_DIR / "storage_bm25"
 DROP_DIR = BASE_DIR / "input_utente"
 
 
-# --- CONFIGURAZIONE LOGGING ---
+# --- LOGGING CONFIGURATION ---
 LOG_DIR = BASE_DIR / "logs"
 WATCHER_LOG_FILE = LOG_DIR / "watcher.log"
 INGESTION_LOG_FILE = LOG_DIR / "ingestion.log"
 LOG_RETENTION_DAYS = 30
 
-# --- 3. SETTINGS DB ---
+# --- 3. DB SETTINGS ---
 COLLECTION_NAME = "arcum_docs"
 
-# --- 4. CONFIGURAZIONE AI ---
+# --- 4. AI CONFIGURATION ---
 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"
 
 def init_settings():
     Settings.embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
     Settings.llm = Ollama(
-        model=LLM_MODEL_NAME, 
+        model=LLM_MODEL_NAME,
         request_timeout=REQUEST_TIMEOUT,
-        keep_alive="60m", 
+        keep_alive="60m",
         context_window=CONTEXT_WINDOW
     )
     Settings.text_splitter = SentenceSplitter(
-        chunk_size=CHUNK_SIZE, 
+        chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP
     )
 
-# --- 5. CONFIGURAZIONE OCR (Windows) ---
+# --- 5. OCR CONFIGURATION (Windows) ---
 TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 POPPLER_PATH = r"C:\Program Files\Poppler\Library\bin"
 OCR_ENABLED = Path(TESSERACT_CMD).exists() and Path(POPPLER_PATH).exists()
-#OCR_ENABLED = False # <--- Forza OFF per l'ingestion massiva senza OCR
+#OCR_ENABLED = False # <--- Force OFF for massive ingestion without OCR
 
-# --- 6. CONFIGURAZIONE WATCHER ---
+# --- 6. WATCHER CONFIGURATION ---
 WATCH_EXTENSIONS = {
-    ".pdf", ".PDF", 
-    ".msg", ".MSG", 
+    ".pdf", ".PDF",
+    ".msg", ".MSG",
     ".eml", ".EML",
-    ".txt", ".TXT", 
-    ".xlsx", ".XLSX", 
+    ".txt", ".TXT",
+    ".xlsx", ".XLSX",
     ".docx", ".DOCX"
 }
 WATCH_DEBOUNCE = 5
 
-# --- 7. SICUREZZA & CARICAMENTO UTENTI ---
+# --- 7. SECURITY & USER LOADING ---
 USERS_FILE = BASE_DIR / "users.json"
 
-# --- 8. INTELLIGENZA DINAMICA (SYSTEM PROMPTS) ---
+# --- 8. DYNAMIC INTELLIGENCE (SYSTEM PROMPTS) ---
 
 CUSTOM_CONTEXT_TEMPLATE = (
         "Di seguito sono riportate le informazioni di contesto recuperate dai documenti:\n"
@@ -124,14 +124,14 @@ ROLE_PROMPTS = {
         "Tono: Formale ma gentile. Formatta le date chiaramente.\n"
         "Regola d'oro: Se non trovi l'informazione nei documenti, chiedi chiarimenti, non inventare."
     ),
-    
+
     "LEGAL": (
         "Sei un esperto giurista svizzero (Canton Ticino).\n"
         "Il tuo compito è: Analisi contrattuale, pareri legali e ricerca di clausole critiche.\n"
         "Tono: Tecnico, rigoroso, distaccato.\n"
         "Regola d'oro: Cita sempre gli articoli di legge (CO/CC) se pertinenti. Evidenzia rischi legali."
     ),
-    
+
     "EXECUTIVE": (
         "Sei il consulente strategico del Titolare dello studio.\n"
         "Il tuo compito è: Fornire sintesi decisionali rapide.\n"
@@ -141,7 +141,7 @@ ROLE_PROMPTS = {
 
     "COMMERCIALISTA": (
         "Sei il commercialista della azienda.\n"
-        "Tono: Tecnico, rigoroso, distaccato.\n"        
+        "Tono: Tecnico, rigoroso, distaccato.\n"
         "Regola d'oro: Focus su aspetti commerciali."
     ),
 
@@ -149,5 +149,5 @@ ROLE_PROMPTS = {
 }
 
 
-# Questa lista si aggiorna automaticamente se aggiungi chiavi a ROLE_PROMPTS sopra
+# This list auto-updates if you add keys to ROLE_PROMPTS above
 VALID_ROLES = list(ROLE_PROMPTS.keys())

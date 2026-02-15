@@ -10,28 +10,28 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 
-# --- IMPORT MODULI PROGETTO ---
+# --- PROJECT MODULE IMPORTS ---
 from src.logger import log
 from src.config import (
-    DROP_DIR, 
-    INBOX_DIR, 
-    WATCH_EXTENSIONS, 
+    DROP_DIR,
+    INBOX_DIR,
+    WATCH_EXTENSIONS,
     WATCH_DEBOUNCE,
     WATCHER_LOG_FILE
 )
-# Ora usiamo la funzione potenziata direttamente da utils
+# Using the enhanced function directly from utils
 from src.utils import sposta_file_con_struttura, pulisci_cartelle_vuote
 
-# --- CONFIGURAZIONE LOGGER WATCHER (TIME BASED) ---
-# Ruota ogni notte a mezzanotte, tiene 7 giorni di storico per il watcher
+# --- WATCHER LOGGER CONFIGURATION (TIME BASED) ---
+# Rotates every midnight, keeps 7 days of history for the watcher
 w_handler = TimedRotatingFileHandler(
-    WATCHER_LOG_FILE, 
-    when='midnight', 
-    interval=1, 
-    backupCount=7, 
+    WATCHER_LOG_FILE,
+    when='midnight',
+    interval=1,
+    backupCount=7,
     encoding='utf-8'
 )
-w_handler.suffix = "%Y-%m-%d" # Aggiunge la data ai file archiviati
+w_handler.suffix = "%Y-%m-%d" # Appends date to archived files
 w_formatter = logging.Formatter('%(asctime)s - WATCHER - %(message)s', datefmt='%H:%M:%S')
 w_handler.setFormatter(w_formatter)
 log.addHandler(w_handler)
@@ -53,23 +53,23 @@ class StagingHandler(FileSystemEventHandler):
             if filename.startswith("~$") or filename.startswith("."): return
             if Path(event.src_path).suffix not in WATCH_EXTENSIONS: return
 
-            print(f"👀 Rilevato: {filename}   ", end="\r")
+            print(f"👀 Detected: {filename}   ", end="\r")
             self.last_event_time = time.time()
             self.needs_processing = True
         except Exception:
-            pass 
+            pass
 
 def check_folder_health(folder_path: Path):
     try:
         if not folder_path.exists():
-            return False, f"Cartella NON TROVATA: {folder_path}"
+            return False, f"Folder NOT FOUND: {folder_path}"
         if not os.access(folder_path, os.R_OK):
-            return False, f"ACCESSO NEGATO (Lettura): {folder_path}"
+            return False, f"ACCESS DENIED (Read): {folder_path}"
         if not os.access(folder_path, os.W_OK):
-            return False, f"ACCESSO NEGATO (Scrittura): {folder_path}"
+            return False, f"ACCESS DENIED (Write): {folder_path}"
         return True, "OK"
     except Exception as e:
-        return False, f"Errore imprevisto check cartella: {e}"
+        return False, f"Unexpected error checking folder: {e}"
 
 def wait_for_drop_zone():
     first_error_shown = False
@@ -77,71 +77,71 @@ def wait_for_drop_zone():
         is_healthy, msg = check_folder_health(DROP_DIR)
         if is_healthy:
             if first_error_shown:
-                log.info(f"✅ Connessione Drop Zone ristabilita!")
+                log.info(f"✅ Drop Zone connection restored!")
             return True
         else:
             if not first_error_shown:
-                log.error(f"❌ ERRORE CRITICO DROP ZONE: {msg}")
-                log.warning(f"⏳ In attesa che la cartella diventi accessibile (riprovo ogni 5s)...")
+                log.error(f"❌ CRITICAL DROP ZONE ERROR: {msg}")
+                log.warning(f"⏳ Waiting for folder to become accessible (retrying every 5s)...")
                 first_error_shown = True
             time.sleep(5)
 
 def process_drop_zone():
     """
-    Scansiona Drop Zone ricorsivamente e sposta in Inbox usando utils robusto.
+    Scans Drop Zone recursively and moves files to Inbox using robust utils.
     """
     is_healthy, msg = check_folder_health(DROP_DIR)
     if not is_healthy:
-        log.error(f"❌ PERDITA CONNESSIONE: {msg}")
+        log.error(f"❌ CONNECTION LOST: {msg}")
         return 0
 
     INBOX_DIR.mkdir(parents=True, exist_ok=True)
     files_moved_count = 0
-    
+
     try:
         files_found = [
-            f for f in DROP_DIR.rglob('*') 
+            f for f in DROP_DIR.rglob('*')
             if f.is_file() and f.suffix in WATCH_EXTENSIONS and not f.name.startswith("~$")
         ]
 
         for file_path in files_found:
             try:
-                # ORA BASTA QUESTA RIGA: La funzione in utils gestisce retry e struttura
+                # This single line handles retry and structure preservation
                 sposta_file_con_struttura(file_path, DROP_DIR, INBOX_DIR)
-                log.info(f"   -> Trasferito: {file_path.name}")
+                log.info(f"   -> Transferred: {file_path.name}")
                 files_moved_count += 1
             except Exception as e:
-                # Se fallisce dopo i retry interni di utils, lo logghiamo qui
-                log.error(f"   ❌ Fallito spostamento {file_path.name}: {e}")
+                # If it fails after internal retries in utils, log it here
+                log.error(f"   ❌ Failed to move {file_path.name}: {e}")
 
         if files_moved_count > 0:
             pulisci_cartelle_vuote(DROP_DIR)
 
     except Exception as e:
-        log.error(f"❌ Errore scansione Drop Zone: {e}")
-        
+        log.error(f"❌ Error scanning Drop Zone: {e}")
+
     return files_moved_count
 
 def run_watcher():
     log.info("------------------------------------------------")
-    log.info("🔭 AVVIO ARCUM WATCHER (Clean Utils)")
+    log.info("🔭 STARTING ARCUM WATCHER (Clean Utils)")
     log.info("------------------------------------------------")
-    
+
     wait_for_drop_zone()
     if not INBOX_DIR.exists(): INBOX_DIR.mkdir(parents=True)
 
     log.info(f"📂 Drop Zone: {DROP_DIR}")
     log.info(f"📂 System In: {INBOX_DIR}")
     log.info(f"📝 WatchLog:  {WATCHER_LOG_FILE}")
-    
+
     event_handler = StagingHandler()
     observer = Observer()
-    
+
     try:
         observer.schedule(event_handler, str(DROP_DIR), recursive=True)
         observer.start()
     except OSError as e:
-        log.critical(f"❌ Impossibile avviare monitoraggio: {e}")
+        log.critical(f"❌ Unable to start monitoring: {e}")
         return
 
     try:
@@ -150,27 +150,27 @@ def run_watcher():
             if event_handler.needs_processing:
                 time_since_last = time.time() - event_handler.last_event_time
                 if time_since_last > WATCH_DEBOUNCE:
-                    print(" " * 60, end="\r") 
-                    log.info(f"🚀 Rilevata quiete. Avvio elaborazione...")
+                    print(" " * 60, end="\r")
+                    log.info(f"🚀 Quiet period detected. Starting processing...")
                     event_handler.needs_processing = False
-                    
+
                     count = process_drop_zone()
-                    
+
                     if count > 0:
                         try:
-                            log.info(f"⚙️  Lancio main.py per {count} nuovi file...")
+                            log.info(f"⚙️  Launching main.py for {count} new files...")
                             subprocess.run([sys.executable, "main.py"], check=True)
-                            log.info("✅ Ciclo completato. Torno di vedetta.")
+                            log.info("✅ Cycle completed. Back on watch.")
                         except subprocess.CalledProcessError:
-                            log.error("❌ ERRORE: main.py ha restituito un errore.")
+                            log.error("❌ ERROR: main.py returned an error.")
                         except Exception as e:
-                            log.error(f"❌ ERRORE CRITICO: {e}")
+                            log.error(f"❌ CRITICAL ERROR: {e}")
                     else:
-                        log.info("ℹ️ Nessun file valido spostato.")
+                        log.info("ℹ️ No valid files moved.")
                     print("\n")
     except KeyboardInterrupt:
         observer.stop()
-        log.info("🛑 Watcher fermato dall'utente.")
+        log.info("🛑 Watcher stopped by user.")
     observer.join()
 
 if __name__ == "__main__":

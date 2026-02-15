@@ -119,7 +119,7 @@ namespace ArcumAI.OutlookAddIn
                     }
                     else
                     {
-                        errorMsg = $"Tool '{toolName}' sconosciuto.";
+                        errorMsg = $"Unknown tool '{toolName}'.";
                         LogWarning(errorMsg);
                     }
                 }
@@ -175,7 +175,7 @@ namespace ArcumAI.OutlookAddIn
                             ? mail.Body.Substring(0, _config.EmailPreviewLength) + "..."
                             : mail.Body;
 
-                        results.Add($"[{mail.ReceivedTime:g}] DA: {mail.SenderName} | OGGETTO: {mail.Subject} | ANTEPRIMA: {snippet}");
+                        results.Add($"[{mail.ReceivedTime:g}] FROM: {mail.SenderName} | SUBJECT: {mail.Subject} | PREVIEW: {snippet}");
                         count++;
                     }
 
@@ -238,7 +238,7 @@ namespace ArcumAI.OutlookAddIn
                 LogError(errorMsg);
             }
 
-            if (results.Count == 0) results.Add("Nessun appuntamento trovato.");
+            if (results.Count == 0) results.Add("No appointments found.");
             return results;
         }
 

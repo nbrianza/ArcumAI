@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -21,37 +21,37 @@ namespace ArcumAI.OutlookAddIn
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
-            // 1. Carica Configurazione
+            // 1. Load Configuration
             _config = PluginConfig.Instance;
 
             if (!_config.Validate(out string validationError))
             {
-                Log("WARNING", $"Configurazione non valida: {validationError} - uso valori di default");
+                Log("WARNING", $"Invalid configuration: {validationError} - using default values");
             }
 
-            Log("INFO", $"ArcumAI Plugin avviato | Server: {_config.ServerUrl} | Utente: {_config.UserId}");
+            Log("INFO", $"ArcumAI Plugin started | Server: {_config.ServerUrl} | User: {_config.UserId}");
 
-            // Dump configurazione completa nel file di log
+            // Dump full configuration to log file
             try
             {
                 string cfgJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
-                Log("INFO", $"Configurazione effettiva: {cfgJson}");
+                Log("INFO", $"Effective configuration: {cfgJson}");
             }
             catch (Exception ex)
             {
-                Log("WARNING", $"Impossibile serializzare configurazione: {ex.Message}");
+                Log("WARNING", $"Unable to serialize configuration: {ex.Message}");
             }
 
-            // 2. Setup Trasporto
+            // 2. Setup Transport
             _transport = new WebSocketTransport();
             _transport.MessageReceived += OnMessageFromArcum;
             _transport.Disconnected += OnDisconnected;
 
-            // 3. Connessione
+            // 3. Connect
             _reconnectAttempt = 0;
             ConnectToArcum();
 
-            // 4. Hook evento Quit (più affidabile di Shutdown per VSTO)
+            // 4. Hook Quit event (more reliable than Shutdown for VSTO)
             ((Outlook.ApplicationEvents_11_Event)this.Application).Quit += new Outlook.ApplicationEvents_11_QuitEventHandler(Application_Quit);
         }
 
@@ -61,18 +61,18 @@ namespace ArcumAI.OutlookAddIn
 
             try
             {
-                Log("INFO", $"Connessione a {_config.GetWebSocketUrl()} (tentativo {_reconnectAttempt + 1})...");
+                Log("INFO", $"Connecting to {_config.GetWebSocketUrl()} (attempt {_reconnectAttempt + 1})...");
 
                 await _transport.ConnectAsync(_config.ServerUrl, _config.UserId);
 
                 _reconnectAttempt = 0;
-                Log("INFO", "Connesso con successo");
+                Log("INFO", "Connected successfully");
 
                 StartHeartbeat();
             }
             catch (Exception ex)
             {
-                Log("ERROR", $"Connessione fallita: {ex.Message}");
+                Log("ERROR", $"Connection failed: {ex.Message}");
                 ScheduleReconnect();
             }
         }
@@ -83,14 +83,14 @@ namespace ArcumAI.OutlookAddIn
 
             if (_config.MaxReconnectAttempts != -1 && _reconnectAttempt >= _config.MaxReconnectAttempts)
             {
-                Log("ERROR", $"Raggiunto limite massimo di riconnessione ({_config.MaxReconnectAttempts}). Stop tentativi.");
+                Log("ERROR", $"Reached maximum reconnection limit ({_config.MaxReconnectAttempts}). Stopping attempts.");
                 return;
             }
 
             _reconnectAttempt++;
             int delay = _config.ReconnectDelayMs;
 
-            Log("WARNING", $"Riconnessione in {delay}ms (tentativo {_reconnectAttempt}/{(_config.MaxReconnectAttempts == -1 ? "∞" : _config.MaxReconnectAttempts.ToString())})...");
+            Log("WARNING", $"Reconnecting in {delay}ms (attempt {_reconnectAttempt}/{(_config.MaxReconnectAttempts == -1 ? "∞" : _config.MaxReconnectAttempts.ToString())})...");
 
             await Task.Delay(delay);
             ConnectToArcum();
@@ -110,11 +110,11 @@ namespace ArcumAI.OutlookAddIn
                     try
                     {
                         await _transport.SendAsync("{\"method\":\"heartbeat\"}");
-                        Log("DEBUG", "Heartbeat inviato");
+                        Log("DEBUG", "Heartbeat sent");
                     }
                     catch (Exception ex)
                     {
-                        Log("WARNING", $"Heartbeat fallito: {ex.Message}");
+                        Log("WARNING", $"Heartbeat failed: {ex.Message}");
                         StopHeartbeat();
                         ScheduleReconnect();
                     }
@@ -143,7 +143,7 @@ namespace ArcumAI.OutlookAddIn
         {
             if (_isShuttingDown) return;
 
-            Log("WARNING", "Connessione persa dal server");
+            Log("WARNING", "Connection lost from server");
             StopHeartbeat();
             ScheduleReconnect();
         }
@@ -153,7 +153,7 @@ namespace ArcumAI.OutlookAddIn
             _isShuttingDown = true;
             StopHeartbeat();
 
-            Log("INFO", "Outlook in chiusura, disconnessione...");
+            Log("INFO", "Outlook closing, disconnecting...");
 
             if (_transport != null && _transport.IsConnected)
             {
@@ -181,7 +181,7 @@ namespace ArcumAI.OutlookAddIn
                     string toolName = (string)request["params"]["name"];
                     JToken args = request["params"]["arguments"];
 
-                    Log("INFO", $"Esecuzione tool: {toolName}");
+                    Log("INFO", $"Executing tool: {toolName}");
 
                     if (toolName == "search_emails")
                     {
@@ -195,7 +195,7 @@ namespace ArcumAI.OutlookAddIn
                     }
                     else
                     {
-                        errorMsg = $"Tool '{toolName}' sconosciuto.";
+                        errorMsg = $"Unknown tool '{toolName}'.";
                         Log("WARNING", errorMsg);
                     }
                 }
@@ -221,11 +221,11 @@ namespace ArcumAI.OutlookAddIn
             }
             catch (Exception ex)
             {
-                Log("ERROR", $"Errore gestione messaggio: {ex}");
+                Log("ERROR", $"Error handling message: {ex}");
             }
         }
 
-        // --- FUNZIONI OUTLOOK ---
+        // --- OUTLOOK FUNCTIONS ---
 
         private List<string> GetEmails(string query)
         {
@@ -260,7 +260,7 @@ namespace ArcumAI.OutlookAddIn
                             string snippet = mail.Body != null && mail.Body.Length > previewLen
                                 ? mail.Body.Substring(0, previewLen) + "..."
                                 : mail.Body;
-                            results.Add($"[{mail.ReceivedTime:g}] DA: {mail.SenderName} | OGGETTO: {mail.Subject} | ANTEPRIMA: {snippet}");
+                            results.Add($"[{mail.ReceivedTime:g}] FROM: {mail.SenderName} | SUBJECT: {mail.Subject} | PREVIEW: {snippet}");
                             count++;
                         }
                     }
@@ -271,12 +271,12 @@ namespace ArcumAI.OutlookAddIn
                     if (count >= maxResults) break;
                 }
 
-                Log("INFO", $"GetEmails: trovate {results.Count} mail per query '{query}'");
+                Log("INFO", $"GetEmails: found {results.Count} emails for query '{query}'");
             }
             catch (Exception ex)
             {
-                results.Add($"Errore lettura mail: {ex.Message}");
-                Log("ERROR", $"GetEmails errore: {ex.Message}");
+                results.Add($"Error reading emails: {ex.Message}");
+                Log("ERROR", $"GetEmails error: {ex.Message}");
             }
             finally
             {
@@ -338,12 +338,12 @@ namespace ArcumAI.OutlookAddIn
                     }
                 }
 
-                Log("INFO", $"GetCalendar: trovati {results.Count} appuntamenti per filtro '{filter}'");
+                Log("INFO", $"GetCalendar: found {results.Count} appointments for filter '{filter}'");
             }
             catch (Exception ex)
             {
-                results.Add($"Errore calendario: {ex.Message}");
-                Log("ERROR", $"GetCalendar errore: {ex.Message}");
+                results.Add($"Calendar error: {ex.Message}");
+                Log("ERROR", $"GetCalendar error: {ex.Message}");
             }
             finally
             {
@@ -353,7 +353,7 @@ namespace ArcumAI.OutlookAddIn
                 if (session != null) Marshal.ReleaseComObject(session);
             }
 
-            if (results.Count == 0) results.Add("Nessun appuntamento trovato.");
+            if (results.Count == 0) results.Add("No appointments found.");
             return results;
         }
 
@@ -394,7 +394,7 @@ namespace ArcumAI.OutlookAddIn
             }
             catch
             {
-                // Fallback silenzioso per non bloccare Outlook
+                // Silent fallback to avoid blocking Outlook
             }
 
             System.Diagnostics.Debug.WriteLine($"[ArcumAI {level}] {message}");
@@ -402,7 +402,7 @@ namespace ArcumAI.OutlookAddIn
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
-            // Lasciare vuoto - logica critica gestita in Application_Quit
+            // Leave empty - critical logic handled in Application_Quit
         }
 
         #region VSTO generated code

@@ -9,53 +9,53 @@ import chromadb
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.chat_engine import ContextChatEngine
 
-# Retrievers per Hybrid Search
+# Retrievers for Hybrid Search
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
 
-# --- IMPORT CONFIGURAZIONE ---
+# --- CONFIG IMPORT ---
 from src.config import (
-    CHROMA_PATH, 
-    COLLECTION_NAME, 
-    BM25_PATH,          
-    ROLE_PROMPTS,           # <--- Importiamo i ruoli
-    DEFAULT_SYSTEM_PROMPT, 
+    CHROMA_PATH,
+    COLLECTION_NAME,
+    BM25_PATH,
+    ROLE_PROMPTS,           # Import role prompts
+    DEFAULT_SYSTEM_PROMPT,
     RETRIEVER_TOP_K,
     init_settings
 )
 
-# --- CONFIGURAZIONE TEST ---
-# Cambia qui il ruolo che vuoi testare oggi:
-# Opzioni: "ADMIN", "LEGAL", "EXECUTIVE", "COMMERCIALISTA", "TEST"
-TARGET_ROLE = "TEST"  
+# --- TEST CONFIGURATION ---
+# Change the role you want to test here:
+# Options: "ADMIN", "LEGAL", "EXECUTIVE", "COMMERCIALISTA", "TEST"
+TARGET_ROLE = "TEST"
 
 def get_hybrid_retriever(index):
     """
-    Replica ESATTA della logica di retrieval di app.py.
+    Exact replica of the retrieval logic from app.py.
     """
-    # A. Retriever Vettoriale
+    # A. Vector Retriever
     vector_retriever = index.as_retriever(similarity_top_k=RETRIEVER_TOP_K)
-    
-    # B. Retriever BM25 (Parole chiave)
+
+    # B. BM25 Retriever (Keywords)
     if BM25_PATH.exists():
         try:
             bm25_retriever = BM25Retriever.from_persist_dir(str(BM25_PATH))
             bm25_retriever.similarity_top_k = RETRIEVER_TOP_K
-            
-            # C. Fusione
+
+            # C. Fusion
             return QueryFusionRetriever(
                 [vector_retriever, bm25_retriever],
-                similarity_top_k=RETRIEVER_TOP_K, 
+                similarity_top_k=RETRIEVER_TOP_K,
                 num_queries=1,
                 mode="reciprocal_rerank",
                 use_async=True,
-                verbose=False 
+                verbose=False
             )
         except Exception as e:
-            print(f"⚠️ Errore caricamento BM25: {e}. Uso solo vettoriale.")
+            print(f"⚠️ Error loading BM25: {e}. Using vector only.")
             return vector_retriever
     else:
-        print("⚠️ Indice BM25 non trovato. Uso solo Vettoriale.")
+        print("⚠️ BM25 index not found. Using vector only.")
         return vector_retriever
 
 def load_index_manual():
@@ -66,57 +66,56 @@ def load_index_manual():
     return VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
 
 async def main():
-    # 1. Inizializza Settings (Ollama, Embeddings)
+    # 1. Initialize Settings (Ollama, Embeddings)
     init_settings()
 
-    # 2. Seleziona il System Prompt (Il "Cervello" del profilo)
+    # 2. Select the System Prompt (The profile's "Brain")
     system_prompt = ROLE_PROMPTS.get(TARGET_ROLE, DEFAULT_SYSTEM_PROMPT)
-    
+
     print("\n" + "="*60)
-    print(f"🧠 ARCUM AI - CLI DIAGNOSTICA")
-    print(f"🎭 Profilo Attivo: {TARGET_ROLE}")
-    print(f"⚙️  Motore: Hybrid (Vector + BM25)")
+    print(f"🧠 ARCUM AI - CLI DIAGNOSTICS")
+    print(f"🎭 Active Profile: {TARGET_ROLE}")
+    print(f"⚙️  Engine: Hybrid (Vector + BM25)")
     print("="*60 + "\n")
 
-    # 3. Carica Indice e Retriever
+    # 3. Load Index and Retriever
     try:
         index = load_index_manual()
         retriever = get_hybrid_retriever(index)
     except Exception as e:
-        print(f"❌ Errore critico DB: {e}")
+        print(f"❌ Critical DB error: {e}")
         return
 
-    # 4. Crea Chat Engine (identico a app.py)
+    # 4. Create Chat Engine (identical to app.py)
     chat_engine = ContextChatEngine.from_defaults(
         retriever=retriever,
         memory=ChatMemoryBuffer.from_defaults(token_limit=4000),
-        system_prompt=system_prompt, # <--- Iniezione Profilo
+        system_prompt=system_prompt, # Profile injection
         llm=Settings.llm
     )
 
-    print("💬 Scrivi la tua domanda (o 'exit' per uscire)")
-    
+    print("💬 Type your question (or 'exit' to quit)")
+
     while True:
         try:
-            user_input = input("\n👉 Tu: ").strip()
+            user_input = input("\n👉 You: ").strip()
             if user_input.lower() in ["exit", "quit", "esci"]:
-                print("👋 Chiusura.")
+                print("👋 Closing.")
                 break
-            
+
             if not user_input: continue
 
             print("🤖 ArcumAI: ", end="", flush=True)
-            
-            # 5. Streaming Risposta (con FIX asincrono)
+
+            # 5. Streaming Response (with async FIX)
             response = await chat_engine.astream_chat(user_input)
-            
-            # NOTA: Qui ci sono le parentesi () che mancavano prima
+
             async for token in response.async_response_gen():
                 print(token, end="", flush=True)
-            
-            # (Opzionale) Mostra fonti usate per debug
+
+            # (Optional) Show sources used for debug
             if response.source_nodes:
-                print("\n\n   📚 Fonti rilevate:")
+                print("\n\n   📚 Relevant sources:")
                 seen = set()
                 for node in response.source_nodes:
                     fname = node.metadata.get('filename', 'N/A')
@@ -125,10 +124,10 @@ async def main():
                         seen.add(fname)
 
         except KeyboardInterrupt:
-            print("\n🛑 Interrotto.")
+            print("\n🛑 Interrupted.")
             break
         except Exception as e:
-            print(f"\n❌ Errore: {e}")
+            print(f"\n❌ Error: {e}")
 
 if __name__ == "__main__":
     try:

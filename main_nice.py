@@ -5,7 +5,7 @@ from src.bridge import bridge_manager
 from pathlib import Path
 from nicegui import ui, app
 
-# Setup Ambiente
+# Environment Setup
 from dotenv import load_dotenv
 load_dotenv()
 import nest_asyncio
@@ -33,7 +33,7 @@ from src.ui.sidebar import create_sidebar
 from src.ui.chat_area import create_chat_area
 from src.ui.footer import create_footer
 
-# Inizializza Settings
+# Initialize Settings
 init_settings()
 
 # Setup Assets
@@ -51,9 +51,9 @@ async def health_check():
     return {"status": "ok", "service": "ArcumAI"}
 
 
-# --- ENDPOINT WEBSOCKET PER OUTLOOK ---
+# --- WEBSOCKET ENDPOINT FOR OUTLOOK ---
 def _is_valid_outlook_id(user_id: str) -> bool:
-    """Verifica che user_id sia un outlook_id registrato e univoco in users.json."""
+    """Checks that user_id is a registered and unique outlook_id in users.json."""
     if not user_id or len(user_id) > 100:
         return False
     users = load_users()
@@ -61,19 +61,19 @@ def _is_valid_outlook_id(user_id: str) -> bool:
     if len(matches) == 0:
         return False
     if len(matches) > 1:
-        slog.error(f"ERRORE CONFIG: outlook_id '{user_id}' duplicato per utenti: {matches}. Connessione rifiutata.")
+        slog.error(f"CONFIG ERROR: outlook_id '{user_id}' is duplicated for users: {matches}. Connection refused.")
         return False
     return True
 
 @app.websocket("/ws/outlook/{user_id}")
 async def outlook_endpoint(websocket: WebSocket, user_id: str):
     """
-    Endpoint a cui si collega il plugin C#.
-    URL: ws://tuo-server:8080/ws/outlook/nome_utente
+    Endpoint for the C# plugin to connect to.
+    URL: ws://your-server:8080/ws/outlook/username
     """
     if not _is_valid_outlook_id(user_id):
-        slog.warning(f"WS rejected: outlook_id '{user_id}' non registrato.")
-        await websocket.close(code=4001, reason="Outlook ID non autorizzato")
+        slog.warning(f"WS rejected: outlook_id '{user_id}' not registered.")
+        await websocket.close(code=4001, reason="Outlook ID not authorized")
         return
 
     await bridge_manager.connect(websocket, user_id)
@@ -83,9 +83,9 @@ async def outlook_endpoint(websocket: WebSocket, user_id: str):
             await bridge_manager.handle_incoming_message(user_id, data)
     except WebSocketDisconnect:
         bridge_manager.disconnect(user_id)
-        
 
-# --- PAGINA LOGIN ---
+
+# --- LOGIN PAGE ---
 @ui.page('/login')
 def login_page():
     if app.storage.user.get('authenticated', False):
@@ -96,8 +96,8 @@ def login_page():
 
     with ui.card().classes('absolute-center w-96 p-8 shadow-2xl bg-slate-900 border border-slate-700'):
         ui.image('/assets/logow.png').classes('w-32 mx-auto mb-4 object-contain')
-        ui.label('Accesso Riservato').classes('text-xl font-bold text-center w-full mb-4 text-white')
-        
+        ui.label('Restricted Access').classes('text-xl font-bold text-center w-full mb-4 text-white')
+
         username = ui.input('Username').classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
         password = ui.input('Password', password=True).classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
         error_msg = ui.label('').classes('text-red-400 text-sm hidden mt-2 text-center w-full')
@@ -106,7 +106,7 @@ def login_page():
             user = username.value
             pwd = password.value
             if user in users_db:
-                stored_hash = users_db[user].get('pw_hash', '') 
+                stored_hash = users_db[user].get('pw_hash', '')
                 if verify_password(pwd, stored_hash):
                     app.storage.user.update({
                         'authenticated': True,
@@ -114,16 +114,16 @@ def login_page():
                         'role': users_db[user].get('role', 'DEFAULT'),
                         'full_name': users_db[user].get('name', user)
                     })
-                    ui.notify(f'Benvenuto {app.storage.user["full_name"]}!', type='positive')
+                    ui.notify(f'Welcome {app.storage.user["full_name"]}!', type='positive')
                     ui.navigate.to('/')
                     return
-            error_msg.text = 'Credenziali non valide'
+            error_msg.text = 'Invalid credentials'
             error_msg.classes(remove='hidden')
-            ui.notify('Errore Login', type='negative')
+            ui.notify('Login Error', type='negative')
 
-        ui.button('Accedi', on_click=try_login).props('color=orange-600 text-color=white').classes('w-full mt-6 font-bold')
+        ui.button('Login', on_click=try_login).props('color=orange-600 text-color=white').classes('w-full mt-6 font-bold')
 
-# --- PAGINA PRINCIPALE ---
+# --- MAIN PAGE ---
 @ui.page('/')
 async def main_page():
     if not app.storage.user.get('authenticated', False):
@@ -131,18 +131,18 @@ async def main_page():
         return
 
     user_data = app.storage.user
-    session = UserSession(username=user_data['username'], role=user_data['role']) 
-    
-    # 1. SIDEBAR (Restituisce l'etichetta di stato per aggiornamenti futuri)
+    session = UserSession(username=user_data['username'], role=user_data['role'])
+
+    # 1. SIDEBAR (Returns the status label for future updates)
     mode_display = create_sidebar(user_data)
-    
-    # 2. CHAT AREA (Restituisce la colonna dove scrivere)
+
+    # 2. CHAT AREA (Returns the column to write to)
     chat_container = create_chat_area()
 
-    # 3. FOOTER (Restituisce input e btn per poterli modificare se switchiamo cloud)
+    # 3. FOOTER (Returns input and btn so we can modify them when switching cloud)
     input_field, upload_btn = create_footer(session, user_data, chat_container, mode_display)
 
-    # 4. HEADER (Ha bisogno di input_field e upload_btn per nasconderli/modificarli se switchiamo Cloud)
+    # 4. HEADER (Needs input_field and upload_btn to hide/modify them when switching Cloud)
     def update_ui_on_mode_change(is_cloud):
         if is_cloud:
             input_field.props('bg-color=orange-8 label="⚠️ CLOUD MODE" label-color=white text-color=white')
@@ -150,9 +150,9 @@ async def main_page():
             mode_display.text = "☁️ Gemini Cloud"
             mode_display.classes(replace='text-orange-600')
         else:
-            input_field.props('bg-color=white label="Scrivi qui..." label-color=black text-color=black')
+            input_field.props('bg-color=white label="Type here..." label-color=black text-color=black')
             upload_btn.set_visibility(True)
-            mode_display.text = "🟢 Chat Locale"
+            mode_display.text = "🟢 Local Chat"
             mode_display.classes(replace='text-green-600')
 
     create_header(user_data, session, update_ui_on_mode_change)
@@ -162,7 +162,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', '8080'))
 
-    slog.info("Avvio Arcum AI")
+    slog.info("Starting Arcum AI")
     slog.info(f"  Profile: {PROFILE} | LLM: {LLM_MODEL_NAME} | Embed: {EMBED_MODEL_NAME}")
     slog.info(f"  Context: {CONTEXT_WINDOW} | Chunk: {CHUNK_SIZE}/{CHUNK_OVERLAP}")
     slog.info(f"  Host: {host}:{port}")

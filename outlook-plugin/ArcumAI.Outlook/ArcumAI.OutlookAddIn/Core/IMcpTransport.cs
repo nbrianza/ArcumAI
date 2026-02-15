@@ -5,19 +5,19 @@ namespace ArcumAI.OutlookAddIn.Core
 {
     public interface IMcpTransport
     {
-        // Evento scatenato quando il server invia un messaggio
+        // Event triggered when the server sends a message
         event EventHandler<string> MessageReceived;
 
-        // Evento scatenato quando la connessione viene persa
+        // Event triggered when the connection is lost
         event EventHandler Disconnected;
 
-        // Connessione al server
+        // Connect to the server
         Task ConnectAsync(string baseUri, string userId);
 
-        // Invio messaggio al server
+        // Send a message to the server
         Task SendAsync(string message);
 
-        // Chiusura pulita della connessione
+        // Gracefully close the connection
         Task DisconnectAsync();
 
         bool IsConnected { get; }

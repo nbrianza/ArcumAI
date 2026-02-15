@@ -14,20 +14,20 @@ from llama_index.core.chat_engine import ContextChatEngine, SimpleChatEngine
 from llama_index.llms.gemini import Gemini
 from llama_index.core.tools import FunctionTool
 
-# --- FIX IMPORT: ADATTAMENTO ALLA VERSIONE WORKFLOW (v0.12+) ---
+# --- FIX IMPORT: ADAPTATION TO WORKFLOW VERSION (v0.12+) ---
 try:
-    # Tentativo 1: Nuova API Workflow (Richiesto dal tuo log errore)
+    # Attempt 1: New Workflow API (Required by your error log)
     from llama_index.core.agent.workflow import ReActAgent as WorkflowReActAgent
 except ImportError:
     WorkflowReActAgent = None
 
 try:
-    # Tentativo 2: Vecchia API (Fallback per versioni precedenti)
+    # Attempt 2: Old API (Fallback for older versions)
     from llama_index.core.agent import ReActAgent as LegacyReActAgent
 except ImportError:
     LegacyReActAgent = None
 
-# Configurazione e Utils
+# Config and Utils
 from src.utils import load_global_triggers, load_chat_triggers
 GLOBAL_TRIGGERS_LIST = load_global_triggers()
 GLOBAL_CHAT_TRIGGERS = load_chat_triggers()
@@ -44,18 +44,18 @@ from src.bridge import bridge_manager
 from src.logger import server_log as slog
 
 
-# --- 1. CARICAMENTO MOTORI ---
+# --- 1. ENGINE LOADING ---
 
 def load_rag_engine(user_role="DEFAULT"):
-    """Motore RAG: Cerca nel Database Vettoriale."""
+    """RAG Engine: Searches the Vector Database."""
     path_to_use = str(CHROMA_PATH) if 'CHROMA_PATH' in globals() else str(DB_PATH)
-    
+
     db = chromadb.PersistentClient(path=path_to_use)
     chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
     index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
-    
+
     vector_retriever = index.as_retriever(similarity_top_k=RETRIEVER_TOP_K)
     retriever = vector_retriever
     if BM25_PATH.exists():
@@ -64,7 +64,7 @@ def load_rag_engine(user_role="DEFAULT"):
             bm25_retriever.similarity_top_k = RETRIEVER_TOP_K
             retriever = QueryFusionRetriever(
                 [vector_retriever, bm25_retriever],
-                similarity_top_k=RETRIEVER_TOP_K, 
+                similarity_top_k=RETRIEVER_TOP_K,
                 num_queries=1,
                 mode="reciprocal_rerank",
                 use_async=False, verbose=True
@@ -72,18 +72,18 @@ def load_rag_engine(user_role="DEFAULT"):
         except: pass
 
     selected_prompt = ROLE_PROMPTS.get(user_role, DEFAULT_SYSTEM_PROMPT)
-    slog.info(f"Engine RAG Caricato | Profilo: {user_role}")
+    slog.info(f"RAG Engine Loaded | Profile: {user_role}")
 
     return ContextChatEngine.from_defaults(
         retriever=retriever,
         memory=ChatMemoryBuffer.from_defaults(token_limit=8192),
         system_prompt=selected_prompt,
-        context_template=CUSTOM_CONTEXT_TEMPLATE, 
-        llm=Settings.llm 
+        context_template=CUSTOM_CONTEXT_TEMPLATE,
+        llm=Settings.llm
     )
 
 def load_simple_local_engine():
-    """Motore Locale: Llama. Vede i file caricati."""
+    """Local Engine: Llama. Sees uploaded files."""
     return SimpleChatEngine.from_defaults(
         system_prompt="Sei un analista di dati. Rispondi basandoti ESCLUSIVAMENTE sul testo fornito, se presente.",
         llm=Settings.llm,
@@ -91,12 +91,12 @@ def load_simple_local_engine():
     )
 
 def load_cloud_engine():
-    """Motore Cloud: Gemini. Vede chat + Conoscenza Globale."""
+    """Cloud Engine: Gemini. Sees chat + Global Knowledge."""
     api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key: raise ValueError("Manca GOOGLE_API_KEY nel file .env")
-    
+    if not api_key: raise ValueError("Missing GOOGLE_API_KEY in .env file")
+
     llm_cloud = Gemini(model="models/gemini-2.5-flash", api_key=api_key)
-    
+
     return SimpleChatEngine.from_defaults(
         system_prompt=(
             "Sei Gemini, un'IA avanzata di Google. "
@@ -108,36 +108,36 @@ def load_cloud_engine():
     )
 
 
-# --- IMPLEMENTAZIONE TOOL PURA ---
+# --- PURE TOOL IMPLEMENTATION ---
 async def _impl_read_email(target_outlook_id: str, query: str):
     if not target_outlook_id:
-        return "ERRORE: Nessun account Outlook collegato a questo utente ArcumAI."
+        return "ERROR: No Outlook account linked to this ArcumAI user."
     return await bridge_manager.send_mcp_request(target_outlook_id, "search_emails", {"query": query})
 
 async def _impl_get_calendar(target_outlook_id: str, date_filter: str = "today"):
     if not target_outlook_id:
-        return "ERRORE: Nessun account Outlook collegato."
+        return "ERROR: No Outlook account linked."
     return await bridge_manager.send_mcp_request(target_outlook_id, "get_calendar", {"filter": date_filter})
 
 
-# --- 2. CLASSE SESSIONE ---
+# --- 2. SESSION CLASS ---
 
 class UserSession:
-    def __init__(self, username, role="DEFAULT"): 
+    def __init__(self, username, role="DEFAULT"):
         self.username = username
         self.role = role
         self.is_cloud = False
-        self.uploaded_context = ""   
-        self.global_history = []     
-        self.rag_engine = None    
-        self.simple_engine = None 
-        self.cloud_engine = None  
-        self.agent_engine = None 
-        
-        # 1. RECUPERA ID OUTLOOK
+        self.uploaded_context = ""
+        self.global_history = []
+        self.rag_engine = None
+        self.simple_engine = None
+        self.cloud_engine = None
+        self.agent_engine = None
+
+        # 1. RETRIEVE OUTLOOK ID
         self.outlook_id = self._get_outlook_id()
-        
-        # 2. CREA I TOOL SPECIFICI
+
+        # 2. CREATE USER-SPECIFIC TOOLS
         self.tools = self._create_user_tools()
 
     def _get_outlook_id(self):
@@ -147,52 +147,52 @@ class UserSession:
 
     def _create_user_tools(self):
         """
-        Crea i tool con ISTRUZIONI DI DISAMBIGUAZIONE FORTI.
+        Creates tools with STRONG DISAMBIGUATION INSTRUCTIONS.
         """
-        
-        # 1. WRAPPER ASYNC ESPLICITI (Sostituiscono 'partial' per stabilità)
+
+        # 1. EXPLICIT ASYNC WRAPPERS (Replace 'partial' for stability)
         async def read_email_wrapper(query: str = ""):
             """
-            TOOL ESCLUSIVO PER: EMAIL, POSTA, MESSAGGI, INBOX.
-            
-            ISTRUZIONI CRITICHE PER L'AI:
-            1. USA QUESTO TOOL SOLO SE L'UTENTE CHIEDE DI "LEGGERE", "CERCARE" O "VEDERE" EMAIL/POSTA.
-            2. NON USARE MAI QUESTO TOOL SE LA DOMANDA RIGUARDA IL CALENDARIO.
-            3. DOPO aver usato questo tool, FERMATI. Non chiamare altri tool a meno che non sia esplicitamente richiesto.
-            4. Parametro 'query':
-               - Lascia VUOTO ("") per "ultime email", "posta di oggi", "cosa ho ricevuto".
-               - Usa "from:Nome" o "subject:Oggetto" solo se specificato.
+            EXCLUSIVE TOOL FOR: EMAIL, MAIL, MESSAGES, INBOX.
+
+            CRITICAL INSTRUCTIONS FOR THE AI:
+            1. USE THIS TOOL ONLY IF THE USER ASKS TO "READ", "SEARCH" OR "VIEW" EMAIL/MAIL.
+            2. NEVER USE THIS TOOL IF THE QUESTION IS ABOUT THE CALENDAR.
+            3. AFTER using this tool, STOP. Do not call other tools unless explicitly requested.
+            4. Parameter 'query':
+               - Leave EMPTY ("") for "latest emails", "today's mail", "what did I receive".
+               - Use "from:Name" or "subject:Subject" only if specified.
             """
-            # Guardrail: Se la query è una domanda naturale, la puliamo
+            # Guardrail: If the query is a natural question, clean it
             if "?" in query or len(query.split()) > 6:
-                slog.warning(f"[{self.username}] AUTO-FIX EMAIL: Query '{query}' complessa. Resetto a vuota (ultime mail).")
-                query = "" 
-            
+                slog.warning(f"[{self.username}] AUTO-FIX EMAIL: Query '{query}' too complex. Resetting to empty (latest mail).")
+                query = ""
+
             return await _impl_read_email(self.outlook_id, query)
 
         async def calendar_wrapper(filter: str = "today"):
             """
-            TOOL ESCLUSIVO PER: CALENDARIO, AGENDA, APPUNTAMENTI, RIUNIONI.
-            
-            ISTRUZIONI CRITICHE PER L'AI:
-            1. USA QUESTO TOOL SOLO SE L'UTENTE CHIEDE "COSA DEVO FARE", "IMPEGNI", "APPUNTAMENTI".
-            2. NON USARE QUESTO TOOL SE L'UTENTE CHIEDE SOLO DELLE EMAIL.
-            3. Parametro 'filter': accetta SOLO 'today' (oggi), 'tomorrow' (domani), 'week'.
+            EXCLUSIVE TOOL FOR: CALENDAR, AGENDA, APPOINTMENTS, MEETINGS.
+
+            CRITICAL INSTRUCTIONS FOR THE AI:
+            1. USE THIS TOOL ONLY IF THE USER ASKS "WHAT DO I HAVE TO DO", "MEETINGS", "APPOINTMENTS".
+            2. DO NOT USE THIS TOOL IF THE USER ONLY ASKS ABOUT EMAIL.
+            3. Parameter 'filter': accepts ONLY 'today', 'tomorrow', 'week'.
             """
-            # Normalizzazione input
+            # Input normalization
             val = filter.lower().strip()
             if "oggi" in val: val = "today"
             if "domani" in val: val = "tomorrow"
             if "settimana" in val: val = "week"
-            
+
             return await _impl_get_calendar(self.outlook_id, val)
-        
-        # 2. CREAZIONE FUNCTION TOOL
+
+        # 2. FUNCTION TOOL CREATION
         return [
             FunctionTool.from_defaults(fn=read_email_wrapper, name="tool_read_email"),
             FunctionTool.from_defaults(fn=calendar_wrapper, name="tool_get_calendar"),
         ]
-  
+
     async def get_rag_engine(self):
         if not self.rag_engine: self.rag_engine = await run.io_bound(load_rag_engine, self.role)
         return self.rag_engine
@@ -200,45 +200,45 @@ class UserSession:
     async def get_simple_engine(self):
         if not self.simple_engine: self.simple_engine = await run.io_bound(load_simple_local_engine)
         return self.simple_engine
-    
+
     async def get_agent_engine(self):
-        """Restituisce un Agente (Compatibile Workflow v0.12+)."""
+        """Returns an Agent (Compatible with Workflow v0.12+)."""
         if self.agent_engine:
             return self.agent_engine
 
-        slog.info(f"[{self.username}] Costruzione Agente Outlook...")
-        
-        # STRATEGIA A: WORKFLOW (Nuovo Standard)
+        slog.info(f"[{self.username}] Building Outlook Agent...")
+
+        # STRATEGY A: WORKFLOW (New Standard)
         if WorkflowReActAgent:
             try:
-                # Nuova sintassi: costruttore diretto, no 'from_tools'
+                # New syntax: direct constructor, no 'from_tools'
                 self.agent_engine = WorkflowReActAgent(
                     llm=Settings.llm,
                     tools=self.tools,
                     system_prompt="Sei un assistente operativo. Usa i tool se richiesto, altrimenti rispondi."
                 )
-                slog.info(f"[{self.username}] Agente caricato: WorkflowReActAgent")
+                slog.info(f"[{self.username}] Agent loaded: WorkflowReActAgent")
                 return self.agent_engine
             except Exception as e:
-                slog.warning(f"[{self.username}] Errore WorkflowReActAgent: {e}")
+                slog.warning(f"[{self.username}] WorkflowReActAgent error: {e}")
 
-        # STRATEGIA B: LEGACY (Vecchio Standard)
+        # STRATEGY B: LEGACY (Old Standard)
         if LegacyReActAgent:
             try:
-                # Vecchia sintassi: factory 'from_tools'
+                # Old syntax: factory 'from_tools'
                 self.agent_engine = LegacyReActAgent.from_tools(
                     tools=self.tools,
                     llm=Settings.llm,
                     verbose=True,
                     memory=ChatMemoryBuffer.from_defaults(token_limit=16384)
                 )
-                slog.info(f"[{self.username}] Agente caricato: LegacyReActAgent")
+                slog.info(f"[{self.username}] Agent loaded: LegacyReActAgent")
                 return self.agent_engine
             except Exception as e:
-                slog.warning(f"[{self.username}] Errore LegacyReActAgent: {e}")
+                slog.warning(f"[{self.username}] LegacyReActAgent error: {e}")
 
         # FALLBACK
-        slog.error(f"[{self.username}] FALLIMENTO CRITICO AGENTE. Uso Chat Semplice.")
+        slog.error(f"[{self.username}] CRITICAL AGENT FAILURE. Using Simple Chat.")
         return await self.get_simple_engine()
 
     async def get_cloud_engine(self):
@@ -250,20 +250,20 @@ class UserSession:
         if "@rag" in text_lower or "@cerca" in text_lower: return "RAG"
         if "@simple" in text_lower or "@chat" in text_lower: return "SIMPLE"
         if "@outlook" in text_lower or "@agent" in text_lower: return "AGENT"
-        
+
         found_chat_triggers = [t for t in GLOBAL_CHAT_TRIGGERS if t in text_lower]
         clean_text = text_lower
-        for t in found_chat_triggers: clean_text = clean_text.replace(t, " ") 
+        for t in found_chat_triggers: clean_text = clean_text.replace(t, " ")
 
         if any(t in clean_text for t in GLOBAL_TRIGGERS_LIST): return "RAG"
-        
-        # Keyword check veloce per Outlook
+
+        # Quick keyword check for Outlook
         outlook_keywords = ["email", "posta", "calendario", "agenda", "appuntamento", "riunione"]
         if any(kw in text_lower for kw in outlook_keywords):
             return "AGENT"
-        
+
         if found_chat_triggers: return "SIMPLE"
-            
+
         try:
             prompt = (f"Classify intent: '{text}'. Reply 'RAG' (documents), 'AGENT' (email/calendar), or 'SIMPLE' (chat). One word.")
             resp = await Settings.llm.acomplete(prompt)
@@ -275,13 +275,13 @@ class UserSession:
 
     def _format_history_as_text(self, limit=6):
         if not self.global_history: return ""
-        history_text = "--- CONTESTO DALLA CHAT RECENTE ---\n"
+        history_text = "--- RECENT CHAT CONTEXT ---\n"
         recent_msgs = self.global_history[-limit:]
         for msg in recent_msgs:
-            role_label = "UTENTE" if msg.role == MessageRole.USER else "AI"
-            content_preview = str(msg.content)[:800] 
+            role_label = "USER" if msg.role == MessageRole.USER else "AI"
+            content_preview = str(msg.content)[:800]
             history_text += f"{role_label}: {content_preview}\n"
-        history_text += "--- FINE CONTESTO ---\n"
+        history_text += "--- END CONTEXT ---\n"
         return history_text
 
     async def run_chat_action(self, user_text, mode_override=None):
@@ -312,7 +312,7 @@ class UserSession:
                 engine = await self.get_simple_engine()
                 used_mode = "SIMPLE"
 
-        # Sync Memoria
+        # Sync Memory
         if hasattr(engine, 'memory') and engine.memory:
             engine.memory.chat_history = [m for m in self.global_history]
 
@@ -322,11 +322,11 @@ class UserSession:
         history_str = self._format_history_as_text()
         final_input = ""
         has_file = bool(self.uploaded_context)
-        
+
         if used_mode == "CLOUD":
             final_input = (f"{history_str}\nISTRUZIONI: Usa la tua conoscenza globale.\nDOMANDA: {clean_query}")
         elif used_mode == "FILE READER" and has_file:
-             slog.info(f"[{self.username}] LOCALE: Iniezione File ({len(self.uploaded_context)} chars).")
+             slog.info(f"[{self.username}] LOCAL: File injection ({len(self.uploaded_context)} chars).")
              final_input = (
                  f"{history_str}\n"
                  f"ISTRUZIONI: Rispondi basandoti SUL SEGUENTE TESTO DEL FILE.\n"
@@ -338,30 +338,30 @@ class UserSession:
 
         slog.info(f"[{self.username}] {used_mode} -> {clean_query[:40]}...")
 
-        # --- FIX ESECUZIONE: GESTIONE WORKFLOW vs CHAT ENGINE ---
+        # --- EXECUTION FIX: WORKFLOW vs CHAT ENGINE HANDLING ---
         response_obj = None
         response_text = ""
 
         try:
-            # Caso 1: È un Workflow Agent (Nuovo)
+            # Case 1: Workflow Agent (New)
             if hasattr(engine, 'run'):
-                # I workflow usano .run() invece di .achat()
+                # Workflows use .run() instead of .achat()
                 response_obj = await engine.run(user_msg=final_input)
                 response_text = str(response_obj)
 
-            # Caso 2: È un Chat Engine (Vecchio o Simple)
+            # Case 2: Chat Engine (Old or Simple)
             elif hasattr(engine, 'achat'):
                 response_obj = await engine.achat(final_input)
                 response_text = str(response_obj)
 
-            # Caso 3: Fallback sincrono
+            # Case 3: Synchronous fallback
             else:
                 response_obj = await run.io_bound(engine.chat, final_input)
                 response_text = str(response_obj)
 
         except Exception as e:
-            slog.error(f"[{self.username}] Errore esecuzione motore: {e}", exc_info=True)
-            response_text = "Scusa, si è verificato un errore tecnico nel processare la richiesta."
+            slog.error(f"[{self.username}] Engine execution error: {e}", exc_info=True)
+            response_text = "Sorry, a technical error occurred while processing the request."
 
         self.global_history.append(ChatMessage(role=MessageRole.USER, content=clean_query))
         self.global_history.append(ChatMessage(role=MessageRole.ASSISTANT, content=response_text))

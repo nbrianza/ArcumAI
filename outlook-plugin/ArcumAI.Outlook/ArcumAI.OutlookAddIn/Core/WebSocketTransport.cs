@@ -18,7 +18,7 @@ namespace ArcumAI.OutlookAddIn.Core
 
         public async Task ConnectAsync(string baseUri, string userId)
         {
-            // Reset connessione precedente se esistente
+            // Reset previous connection if it exists
             if (_cts != null)
             {
                 _cts.Cancel();
@@ -29,24 +29,24 @@ namespace ArcumAI.OutlookAddIn.Core
             _ws = new ClientWebSocket();
             _cts = new CancellationTokenSource();
 
-            // Costruisce l'URL: ws://localhost:8080/ws/outlook/nome_utente
+            // Build the URL: ws://localhost:8080/ws/outlook/username
             var uriString = $"{baseUri.TrimEnd('/')}/ws/outlook/{userId}";
 
             try
             {
-                // Timeout configurabile per la connessione
+                // Configurable connection timeout
                 int timeoutMs = PluginConfig.Instance.ConnectionTimeoutMs;
                 using (var connectCts = new CancellationTokenSource(timeoutMs))
                 {
                     await _ws.ConnectAsync(new Uri(uriString), connectCts.Token);
                 }
 
-                // Avvia il loop di ascolto in background (senza bloccare Outlook)
+                // Start the listening loop in background (without blocking Outlook)
                 _ = ReceiveLoop();
             }
             catch (OperationCanceledException)
             {
-                throw new TimeoutException($"Connessione scaduta dopo {PluginConfig.Instance.ConnectionTimeoutMs}ms");
+                throw new TimeoutException($"Connection timed out after {PluginConfig.Instance.ConnectionTimeoutMs}ms");
             }
             catch (Exception)
             {
@@ -65,7 +65,7 @@ namespace ArcumAI.OutlookAddIn.Core
             }
             catch (Exception)
             {
-                // Connessione persa durante invio
+                // Connection lost during send
                 Disconnected?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -110,7 +110,7 @@ namespace ArcumAI.OutlookAddIn.Core
                         break;
                     }
 
-                    // Supporto messaggi più grandi di 8KB (multi-frame)
+                    // Support messages larger than 8KB (multi-frame)
                     if (!result.EndOfMessage)
                     {
                         var fullMessage = new StringBuilder();
@@ -133,14 +133,14 @@ namespace ArcumAI.OutlookAddIn.Core
             }
             catch (OperationCanceledException)
             {
-                // Cancellazione volontaria, non è un errore
+                // Voluntary cancellation, not an error
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Errore ricezione loop: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Receive loop error: {ex.Message}");
             }
 
-            // Notifica disconnessione per attivare riconnessione automatica
+            // Notify disconnection to trigger automatic reconnection
             Disconnected?.Invoke(this, EventArgs.Empty);
         }
     }
