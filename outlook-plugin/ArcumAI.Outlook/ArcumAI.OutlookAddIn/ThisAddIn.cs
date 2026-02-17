@@ -18,6 +18,7 @@ namespace ArcumAI.OutlookAddIn
         private int _reconnectAttempt;
         private bool _isShuttingDown;
         private System.Timers.Timer _heartbeatTimer;
+        private VirtualLoopbackHandler _loopbackHandler;
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
@@ -51,7 +52,18 @@ namespace ArcumAI.OutlookAddIn
             _reconnectAttempt = 0;
             ConnectToArcum();
 
-            // 4. Hook Quit event (more reliable than Shutdown for VSTO)
+            // 4. Setup Virtual Loopback
+            _loopbackHandler = new VirtualLoopbackHandler(
+                this.Application, _transport, _config, Log);
+
+            if (_config.EnableVirtualLoopback)
+            {
+                this.Application.ItemSend += Application_ItemSend;
+                _loopbackHandler.EnsureContactExists();
+                Log("INFO", $"Virtual Loopback enabled | Target: {_config.ArcumAIEmailAddress}");
+            }
+
+            // 5. Hook Quit event (more reliable than Shutdown for VSTO)
             ((Outlook.ApplicationEvents_11_Event)this.Application).Quit += new Outlook.ApplicationEvents_11_QuitEventHandler(Application_Quit);
         }
 
@@ -148,10 +160,57 @@ namespace ArcumAI.OutlookAddIn
             ScheduleReconnect();
         }
 
+        // --- VIRTUAL LOOPBACK: ITEMSEND HANDLER ---
+
+        private void Application_ItemSend(object Item, ref bool Cancel)
+        {
+            Outlook.MailItem mail = null;
+            try
+            {
+                mail = Item as Outlook.MailItem;
+                if (mail == null) return; // Not an email (meeting request, etc.)
+
+                if (!_transport.IsConnected)
+                {
+                    // Not connected to server: let the email send normally
+                    return;
+                }
+
+                if (_loopbackHandler.ShouldIntercept(mail))
+                {
+                    // ArcumAI is the ONLY recipient: full intercept
+                    Log("INFO", $"VirtualLoopback: Intercepting email to ArcumAI: '{mail.Subject}'");
+                    Cancel = true;
+                    _ = _loopbackHandler.ProcessInterceptedEmail(mail);
+                }
+                else if (_loopbackHandler.ShouldProcessInParallel(mail))
+                {
+                    // ArcumAI + real recipients: send normally but also process via AI
+                    Log("INFO", $"VirtualLoopback: Parallel processing (CC to ArcumAI): '{mail.Subject}'");
+                    _loopbackHandler.RemoveArcumRecipient(mail);
+                    _ = _loopbackHandler.ProcessInterceptedEmail(mail);
+                    // Cancel stays false: email is sent to real recipients
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("ERROR", $"VirtualLoopback: ItemSend handler error: {ex}");
+                // Do NOT cancel on error: let the email send normally
+                Cancel = false;
+            }
+            // NOTE: Do NOT release the mail COM object here - Outlook owns it
+        }
+
         private void Application_Quit()
         {
             _isShuttingDown = true;
             StopHeartbeat();
+
+            // Unhook ItemSend to prevent issues during shutdown
+            if (_config.EnableVirtualLoopback)
+            {
+                try { this.Application.ItemSend -= Application_ItemSend; } catch { }
+            }
 
             Log("INFO", "Outlook closing, disconnecting...");
 
@@ -170,6 +229,14 @@ namespace ArcumAI.OutlookAddIn
                 JObject request = JObject.Parse(json);
                 string method = (string)request["method"];
                 string id = (string)request["id"];
+
+                // Handle virtual_loopback/response first (it's a notification with no id)
+                if (method == "virtual_loopback/response")
+                {
+                    Log("INFO", "VirtualLoopback: Received AI response from server");
+                    _loopbackHandler.HandleServerResponse(request["params"] as JObject);
+                    return;
+                }
 
                 if (string.IsNullOrEmpty(id)) return;
 
@@ -199,7 +266,6 @@ namespace ArcumAI.OutlookAddIn
                         Log("WARNING", errorMsg);
                     }
                 }
-
                 var response = new JObject
                 {
                     ["jsonrpc"] = "2.0",

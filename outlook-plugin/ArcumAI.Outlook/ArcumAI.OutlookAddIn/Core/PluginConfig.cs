@@ -29,6 +29,15 @@ namespace ArcumAI.OutlookAddIn.Core
         public bool AutoReconnect { get; set; }
         public int HeartbeatIntervalMs { get; set; }
 
+        // Virtual Loopback Configuration
+        public bool EnableVirtualLoopback { get; set; }
+        public string ArcumAIEmailAddress { get; set; }
+        public string ArcumAIDisplayName { get; set; }
+        public int MaxAttachmentSizeMB { get; set; }
+        public int MaxTotalAttachmentsMB { get; set; }
+        public int LoopbackTimeoutMs { get; set; }
+        public bool ShowProcessingNotification { get; set; }
+
         /// <summary>
         /// Singleton instance with thread-safe initialization
         /// </summary>
@@ -81,6 +90,15 @@ namespace ArcumAI.OutlookAddIn.Core
             UserId = Environment.UserName.ToLower();
             AutoReconnect = true;
             HeartbeatIntervalMs = 30000;
+
+            // Virtual Loopback defaults
+            EnableVirtualLoopback = true;
+            ArcumAIEmailAddress = "arcumai@arcumai.ai";
+            ArcumAIDisplayName = "ArcumAI Assistant";
+            MaxAttachmentSizeMB = 25;
+            MaxTotalAttachmentsMB = 50;
+            LoopbackTimeoutMs = 3600000; // 1 hour for large documents
+            ShowProcessingNotification = true;
         }
 
         /// <summary>
@@ -171,6 +189,28 @@ namespace ArcumAI.OutlookAddIn.Core
 
             if (appSettings["HeartbeatIntervalMs"] != null && int.TryParse(appSettings["HeartbeatIntervalMs"], out int heartbeat))
                 HeartbeatIntervalMs = heartbeat;
+
+            // Virtual Loopback
+            if (appSettings["EnableVirtualLoopback"] != null && bool.TryParse(appSettings["EnableVirtualLoopback"], out bool enableLb))
+                EnableVirtualLoopback = enableLb;
+
+            if (appSettings["ArcumAIEmailAddress"] != null && !string.IsNullOrWhiteSpace(appSettings["ArcumAIEmailAddress"]))
+                ArcumAIEmailAddress = appSettings["ArcumAIEmailAddress"];
+
+            if (appSettings["ArcumAIDisplayName"] != null && !string.IsNullOrWhiteSpace(appSettings["ArcumAIDisplayName"]))
+                ArcumAIDisplayName = appSettings["ArcumAIDisplayName"];
+
+            if (appSettings["MaxAttachmentSizeMB"] != null && int.TryParse(appSettings["MaxAttachmentSizeMB"], out int maxAttSize))
+                MaxAttachmentSizeMB = maxAttSize;
+
+            if (appSettings["MaxTotalAttachmentsMB"] != null && int.TryParse(appSettings["MaxTotalAttachmentsMB"], out int maxTotalAtt))
+                MaxTotalAttachmentsMB = maxTotalAtt;
+
+            if (appSettings["LoopbackTimeoutMs"] != null && int.TryParse(appSettings["LoopbackTimeoutMs"], out int lbTimeout))
+                LoopbackTimeoutMs = lbTimeout;
+
+            if (appSettings["ShowProcessingNotification"] != null && bool.TryParse(appSettings["ShowProcessingNotification"], out bool showNotif))
+                ShowProcessingNotification = showNotif;
         }
 
         /// <summary>
@@ -388,6 +428,31 @@ High-Performance:
             if (Array.IndexOf(validLogLevels, LogLevel.ToUpper()) == -1)
             {
                 errorMessage = "LogLevel must be DEBUG, INFO, WARNING, or ERROR";
+                return false;
+            }
+
+            // Virtual Loopback validation
+            if (EnableVirtualLoopback && string.IsNullOrWhiteSpace(ArcumAIEmailAddress))
+            {
+                errorMessage = "ArcumAIEmailAddress must be set when Virtual Loopback is enabled";
+                return false;
+            }
+
+            if (MaxAttachmentSizeMB < 1 || MaxAttachmentSizeMB > 100)
+            {
+                errorMessage = "MaxAttachmentSizeMB must be between 1 and 100";
+                return false;
+            }
+
+            if (MaxTotalAttachmentsMB < 1 || MaxTotalAttachmentsMB > 200)
+            {
+                errorMessage = "MaxTotalAttachmentsMB must be between 1 and 200";
+                return false;
+            }
+
+            if (LoopbackTimeoutMs < 10000)
+            {
+                errorMessage = "LoopbackTimeoutMs must be at least 10000ms (10 seconds)";
                 return false;
             }
 
