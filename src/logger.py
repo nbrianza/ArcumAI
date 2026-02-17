@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -8,6 +9,9 @@ try:
     from .config import LOG_DIR
 except ImportError:
     LOG_DIR = Path("logs")
+
+# Log level configurable via environment variable (default: INFO)
+_LOG_LEVEL = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 
 # Crea cartella logs se non esiste
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -41,7 +45,7 @@ def _create_custom_logger(logger_name, filename):
 
     # Setup Logger
     logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(_LOG_LEVEL)
     logger.propagate = False # Evita duplicati
 
     if not logger.handlers:

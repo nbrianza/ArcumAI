@@ -28,7 +28,9 @@ USER                            PLUGIN (C#)                        SERVER (Pytho
   |                               |-- WS: virtual_loopback/send ----->|
   |                               |                                   |-- ACK immediate
   |                               |                                   |-- Route to AI engine:
-  |                               |                                   |     no attachments -> RAG
+  |                               |                                   |     no attachments:
+  |                               |                                   |       1. Gemini Cloud (optimize prompt)
+  |                               |                                   |       2. RAG engine (local LLM)
   |                               |                                   |     with attachments -> FILE_READER
   |                               |                                   |-- Generate response
   |                               |<---- WS: virtual_loopback/response|
@@ -173,10 +175,35 @@ Three new message types added to the existing JSON-RPC 2.0 protocol:
 
 | Scenario | Engine | Rationale |
 |----------|--------|-----------|
-| Email without attachments | **RAG** | User asks a question -> search knowledge base (ChromaDB + BM25) |
+| Email without attachments | **Gemini (optimize) → RAG** | Gemini rewrites the email into an optimized query, then RAG searches the knowledge base |
 | Email with attachments | **FILE_READER** | User sends documents -> analyze the attached content directly |
 
 Implementation: `_route_to_ai_engine()` in `bridge.py` creates a `UserSession` and calls `run_chat_action()` with appropriate mode override.
+
+### Prompt Optimization (Gemini Cloud → Local RAG)
+
+When an email is routed to the RAG engine, the raw email content is first sent to **Gemini 2.5 Flash** (cloud) for prompt optimization before being passed to the local LLM.
+
+**Why**: The local RAG model (e.g. `llama3.2:3b`) has a small context window and limited reasoning. A raw email with greetings, signatures, and conversational noise produces poor retrieval results. Gemini rewrites it into a clean, keyword-rich query optimized for BM25 + ChromaDB hybrid search.
+
+**Flow**:
+```
+Raw email (subject + body)
+  → Gemini Cloud API (rewrite into optimized RAG query)     [~2-5 sec]
+  → "@rag" + optimized query → Local RAG engine (Ollama)    [seconds to minutes]
+  → Response back to Outlook
+```
+
+**Implementation**:
+- `optimize_prompt_for_rag(subject, body)` in `engine.py` — standalone async function using `Gemini.acomplete()` (one-shot, no chat history)
+- Gemini receives a meta-prompt that includes the target `LLM_MODEL` and `CONTEXT_WINDOW` so it can tailor the output
+- The meta-prompt instructs Gemini to: extract core intent, identify entities/dates/legal references, include retrieval-friendly keywords, remove noise
+- **Fallback**: if Gemini fails (API down, quota exceeded), the raw email is used as-is
+- **Logging**: both the incoming email and the Gemini-optimized prompt are logged at INFO level
+
+**Files**:
+- `src/engine.py`: `optimize_prompt_for_rag()` function + lazy-initialized `_gemini_optimizer` singleton
+- `src/bridge.py`: `_route_to_ai_engine()` calls optimizer before routing to RAG
 
 ---
 

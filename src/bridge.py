@@ -329,7 +329,7 @@ class OutlookBridgeManager:
     async def _route_to_ai_engine(self, user_id: str, subject: str, full_context: str, use_rag: bool = True) -> str:
         """Route the loopback request to the appropriate AI engine."""
         from src.auth import load_users
-        from src.engine import UserSession
+        from src.engine import UserSession, optimize_prompt_for_rag
 
         # Find the ArcumAI username from the outlook_id
         users = load_users()
@@ -347,16 +347,26 @@ class OutlookBridgeManager:
         # Create a temporary session for this request
         session = UserSession(username=username, role=role)
 
-        # Build the query
-        query = f"Email Subject: {subject}\n\n{full_context}"
-
         if use_rag:
-            # No attachments: use RAG engine (search knowledge base)
-            mode_override = None  # Let decide_engine route, but force RAG via @rag prefix
-            query = f"@rag {query}"
+            # Log the raw email received from Outlook
+            log.info(f"VirtualLoopback [{user_id}]: Incoming email | Subject='{subject}' | Body ({len(full_context)} chars):\n{full_context}")
+
+            # Optimize prompt via Gemini Cloud before sending to local RAG
+            log.info(f"VirtualLoopback [{user_id}]: Sending to Gemini for prompt optimization...")
+            try:
+                optimized_query = await optimize_prompt_for_rag(subject, full_context)
+                log.info(f"VirtualLoopback [{user_id}]: Gemini optimized prompt:\n{optimized_query}")
+            except Exception as e:
+                log.warning(f"VirtualLoopback [{user_id}]: Gemini optimization failed ({e}), using raw email as fallback")
+                optimized_query = f"Email Subject: {subject}\n\n{full_context}"
+
+            query = f"@rag {optimized_query}"
+            mode_override = None
             log.info(f"VirtualLoopback [{user_id}]: Routing to RAG engine (no attachments)")
         else:
             # Has attachments: inject content and use FILE_READER mode
+            log.info(f"VirtualLoopback [{user_id}]: Incoming email with attachments | Subject='{subject}' | Content ({len(full_context)} chars)")
+            query = f"Email Subject: {subject}\n\n{full_context}"
             session.uploaded_context = full_context
             mode_override = "FILE_READER"
             log.info(f"VirtualLoopback [{user_id}]: Routing to FILE_READER engine ({len(full_context)} chars)")

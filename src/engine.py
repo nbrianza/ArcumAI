@@ -35,7 +35,8 @@ GLOBAL_CHAT_TRIGGERS = load_chat_triggers()
 from src.config import (
     DB_PATH, CHROMA_PATH, BM25_PATH, COLLECTION_NAME,
     RETRIEVER_TOP_K, init_settings,
-    DEFAULT_SYSTEM_PROMPT, CUSTOM_CONTEXT_TEMPLATE, ROLE_PROMPTS
+    DEFAULT_SYSTEM_PROMPT, CUSTOM_CONTEXT_TEMPLATE, ROLE_PROMPTS,
+    LLM_MODEL_NAME, CONTEXT_WINDOW
 )
 
 # Auth & Bridge
@@ -106,6 +107,52 @@ def load_cloud_engine():
         llm=llm_cloud,
         memory=ChatMemoryBuffer.from_defaults(token_limit=8192)
     )
+
+
+# --- PROMPT OPTIMIZER (Gemini Cloud → Local RAG) ---
+
+_gemini_optimizer = None
+
+def _get_gemini_optimizer():
+    """Lazy-init a Gemini LLM instance for prompt optimization (reused across calls)."""
+    global _gemini_optimizer
+    if _gemini_optimizer is None:
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("Missing GOOGLE_API_KEY in .env file")
+        _gemini_optimizer = Gemini(model="models/gemini-2.5-flash", api_key=api_key)
+    return _gemini_optimizer
+
+async def optimize_prompt_for_rag(subject: str, body: str) -> str:
+    """
+    Use Gemini (cloud) to rewrite a raw email into an optimized query
+    for the local RAG engine (BM25 + ChromaDB).
+    Returns the optimized prompt string.
+    """
+    llm = _get_gemini_optimizer()
+
+    meta_prompt = (
+        f"You are a prompt engineer. Your task is to rewrite the following email "
+        f"into an optimized search query for a RAG system.\n\n"
+        f"RAG system details:\n"
+        f"- Retrieval: BM25 + ChromaDB hybrid search over legal, notarial, and fiduciary documents\n"
+        f"- Generation LLM: {LLM_MODEL_NAME} (context window: {CONTEXT_WINDOW} tokens)\n"
+        f"- Language: respond in the same language as the email\n\n"
+        f"Your job:\n"
+        f"1. Extract the core intent / question from the email\n"
+        f"2. Identify key entities, names, dates, legal references\n"
+        f"3. Reformulate as a clear, concise query optimized for document retrieval\n"
+        f"4. Include relevant keywords that would match document chunks\n"
+        f"5. Remove greetings, pleasantries, signatures, and noise\n\n"
+        f"Output ONLY the optimized query, nothing else.\n\n"
+        f"--- EMAIL ---\n"
+        f"Subject: {subject}\n\n"
+        f"{body}\n"
+        f"--- END EMAIL ---"
+    )
+
+    response = await llm.acomplete(meta_prompt)
+    return str(response).strip()
 
 
 # --- PURE TOOL IMPLEMENTATION ---
