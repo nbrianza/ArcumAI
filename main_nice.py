@@ -1,15 +1,23 @@
 import os
+from pathlib import Path
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from src.bridge import bridge_manager
-from pathlib import Path
 from nicegui import ui, app
 
-# Environment Setup
+# Environment Setup - MUST BE FIRST, before any src.* imports
 from dotenv import load_dotenv
-load_dotenv()
 import nest_asyncio
+
+# Force load .env with explicit path and override
+env_file = Path(__file__).parent / '.env'
+print(f"[DOTENV] Loading from: {env_file} (exists: {env_file.exists()})")
+load_dotenv(env_file, override=True)
+print(f"[DOTENV] PROMPT_OPTIMIZATION = {os.getenv('PROMPT_OPTIMIZATION')}")
+
 nest_asyncio.apply()
+
+# Import src modules AFTER .env is loaded
+from src.bridge import bridge_manager
 
 # --- CORS Configuration ---
 ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:8080').split(',')
@@ -22,7 +30,11 @@ app.add_middleware(
 )
 
 # Import Logic
-from src.config import ARCHIVE_DIR, init_settings, PROFILE, LLM_MODEL_NAME, EMBED_MODEL_NAME, CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP
+from src.config import (
+    ARCHIVE_DIR, init_settings, PROFILE, LLM_MODEL_NAME, EMBED_MODEL_NAME,
+    CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP,
+    PROMPT_OPTIMIZATION, ENABLE_NER_MASKING  # Import prompt optimization config
+)
 from src.auth import load_users, verify_password
 from src.engine import UserSession
 from src.logger import server_log as slog
@@ -165,6 +177,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     slog.info("Starting Arcum AI")
     slog.info(f"  Profile: {PROFILE} | LLM: {LLM_MODEL_NAME} | Embed: {EMBED_MODEL_NAME}")
     slog.info(f"  Context: {CONTEXT_WINDOW} | Chunk: {CHUNK_SIZE}/{CHUNK_OVERLAP}")
+    slog.info(f"  Prompt Optimization: {PROMPT_OPTIMIZATION} | NER Masking: {ENABLE_NER_MASKING}")
     slog.info(f"  Host: {host}:{port}")
 
     ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False, storage_secret=storage_secret)

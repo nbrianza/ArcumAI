@@ -351,13 +351,12 @@ class OutlookBridgeManager:
             # Log the raw email received from Outlook
             log.info(f"VirtualLoopback [{user_id}]: Incoming email | Subject='{subject}' | Body ({len(full_context)} chars):\n{full_context}")
 
-            # Optimize prompt via Gemini Cloud before sending to local RAG
-            log.info(f"VirtualLoopback [{user_id}]: Sending to Gemini for prompt optimization...")
+            # Optimize prompt (mode determined by config: local/gemini/off)
             try:
                 optimized_query = await optimize_prompt_for_rag(subject, full_context)
-                log.info(f"VirtualLoopback [{user_id}]: Gemini optimized prompt:\n{optimized_query}")
+                log.info(f"VirtualLoopback [{user_id}]: Optimized prompt:\n{optimized_query}")
             except Exception as e:
-                log.warning(f"VirtualLoopback [{user_id}]: Gemini optimization failed ({e}), using raw email as fallback")
+                log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed ({e}), using raw email as fallback")
                 optimized_query = f"Email Subject: {subject}\n\n{full_context}"
 
             query = f"@rag {optimized_query}"

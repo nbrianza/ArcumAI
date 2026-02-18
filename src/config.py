@@ -96,7 +96,19 @@ WATCH_DEBOUNCE = 5
 # --- 7. SECURITY & USER LOADING ---
 USERS_FILE = BASE_DIR / "users.json"
 
-# --- 8. DYNAMIC INTELLIGENCE (SYSTEM PROMPTS) ---
+# --- 8. PROMPT OPTIMIZATION & PRIVACY ---
+# DEBUG: Print raw env var value
+_raw_prompt_opt = os.getenv("PROMPT_OPTIMIZATION")
+if _raw_prompt_opt:
+    print(f"[DEBUG] PROMPT_OPTIMIZATION from env: '{_raw_prompt_opt}' (len={len(_raw_prompt_opt)})")
+else:
+    print("[DEBUG] PROMPT_OPTIMIZATION not set in env, using default 'local'")
+
+PROMPT_OPTIMIZATION = os.getenv("PROMPT_OPTIMIZATION", "local")  # "local" | "gemini" | "off"
+ENABLE_NER_MASKING = os.getenv("ENABLE_NER_MASKING", "true").lower() == "true"
+NER_SCORE_THRESHOLD = float(os.getenv("NER_SCORE_THRESHOLD", "0.35"))  # Low threshold for privacy
+
+# --- 9. DYNAMIC INTELLIGENCE (SYSTEM PROMPTS) ---
 
 CUSTOM_CONTEXT_TEMPLATE = (
         "Di seguito sono riportate le informazioni di contesto recuperate dai documenti:\n"
