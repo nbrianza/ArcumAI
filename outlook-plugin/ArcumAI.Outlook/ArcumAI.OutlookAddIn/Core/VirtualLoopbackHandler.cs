@@ -291,8 +291,13 @@ namespace ArcumAI.OutlookAddIn.Core
                     ConversationId = conversationId
                 };
 
-                // Simulate "Sent" status: copy to Sent Items
+                // Simulate "Sent" status: copy to Sent Items (with timestamp)
                 SimulateSentItem(mail);
+
+                // Close the compose window and remove from Outbox (both must run on STA thread,
+                // before the first 'await' below - this is guaranteed by the call site)
+                CloseComposeWindow(mail);
+                DeleteFromOutbox(mail);
 
                 // Show processing notification
                 if (_config.ShowProcessingNotification)
@@ -340,9 +345,21 @@ namespace ArcumAI.OutlookAddIn.Core
                 sentFolder = session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderSentMail);
 
                 copy = (Outlook.MailItem)originalMail.Copy();
-                copy.Move(sentFolder);
 
-                _logAction("DEBUG", "VirtualLoopback: Email copied to Sent Items");
+                // Set sent timestamp via MAPI property (SentOn is read-only in Outlook interop)
+                try
+                {
+                    copy.PropertyAccessor.SetProperty(
+                        "http://schemas.microsoft.com/mapi/proptag/0x00390040", // PR_CLIENT_SUBMIT_TIME
+                        DateTime.Now);
+                }
+                catch (Exception ex)
+                {
+                    _logAction("DEBUG", $"VirtualLoopback: Could not set sent time: {ex.Message}");
+                }
+
+                copy.Move(sentFolder);
+                _logAction("DEBUG", "VirtualLoopback: Email copied to Sent Items with sent timestamp");
             }
             catch (Exception ex)
             {
@@ -352,6 +369,107 @@ namespace ArcumAI.OutlookAddIn.Core
             {
                 if (copy != null) Marshal.ReleaseComObject(copy);
                 if (sentFolder != null) Marshal.ReleaseComObject(sentFolder);
+                if (session != null) Marshal.ReleaseComObject(session);
+            }
+        }
+
+        /// <summary>
+        /// Closes the Outlook compose window (Inspector) for the intercepted email.
+        /// Must be called on the main STA thread (before the first await in ProcessInterceptedEmail).
+        /// </summary>
+        private void CloseComposeWindow(Outlook.MailItem mail)
+        {
+            Outlook.Inspectors inspectors = null;
+            try
+            {
+                inspectors = _outlookApp.Inspectors;
+                string subject = mail.Subject ?? "";
+
+                for (int i = inspectors.Count; i >= 1; i--)
+                {
+                    Outlook.Inspector inspector = null;
+                    Outlook.MailItem currentMail = null;
+                    try
+                    {
+                        inspector = inspectors[i];
+                        currentMail = inspector.CurrentItem as Outlook.MailItem;
+                        if (currentMail != null && currentMail.Subject == subject)
+                        {
+                            inspector.Close(Outlook.OlInspectorClose.olDiscard);
+                            _logAction("DEBUG", "VirtualLoopback: Closed compose window");
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logAction("DEBUG", $"VirtualLoopback: Could not close inspector: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (currentMail != null) Marshal.ReleaseComObject(currentMail);
+                        if (inspector != null) Marshal.ReleaseComObject(inspector);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logAction("DEBUG", $"VirtualLoopback: Inspector enumeration failed: {ex.Message}");
+            }
+            finally
+            {
+                if (inspectors != null) Marshal.ReleaseComObject(inspectors);
+            }
+        }
+
+        /// <summary>
+        /// Removes the intercepted email from the Outbox if Outlook queued it there
+        /// before the ItemSend cancellation took effect.
+        /// </summary>
+        private void DeleteFromOutbox(Outlook.MailItem originalMail)
+        {
+            Outlook.NameSpace session = null;
+            Outlook.MAPIFolder outbox = null;
+            Outlook.Items items = null;
+
+            try
+            {
+                session = _outlookApp.Session;
+                outbox = session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderOutbox);
+                items = outbox.Items;
+
+                string subject = originalMail.Subject ?? "";
+
+                for (int i = items.Count; i >= 1; i--)
+                {
+                    Outlook.MailItem item = null;
+                    try
+                    {
+                        item = items[i] as Outlook.MailItem;
+                        if (item != null && item.Subject == subject)
+                        {
+                            item.Delete();
+                            _logAction("DEBUG", "VirtualLoopback: Removed intercepted email from Outbox");
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logAction("DEBUG", $"VirtualLoopback: Error checking Outbox item: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (item != null) Marshal.ReleaseComObject(item);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logAction("WARNING", $"VirtualLoopback: Could not clean Outbox: {ex.Message}");
+            }
+            finally
+            {
+                if (items != null) Marshal.ReleaseComObject(items);
+                if (outbox != null) Marshal.ReleaseComObject(outbox);
                 if (session != null) Marshal.ReleaseComObject(session);
             }
         }
