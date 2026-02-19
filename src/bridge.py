@@ -177,12 +177,13 @@ class OutlookBridgeManager:
         has_attachments = params.get("has_attachments", False)
         cc_recipients = params.get("cc_recipients", [])
         attachments = params.get("attachments", [])
+        skipped_attachments = params.get("skipped_attachments", [])
 
         try:
             log.info(f"VirtualLoopback [{user_id}]: Processing | Subject='{subject}' | "
-                     f"Attachments={len(attachments)} | CC={len(cc_recipients)}")
+                     f"Attachments={len(attachments)} | Skipped={len(skipped_attachments)} | CC={len(cc_recipients)}")
 
-            # Phase 2: decode and process attachments here
+            # Extract text from each attachment
             attachment_texts = []
             for att in attachments:
                 try:
@@ -195,15 +196,50 @@ class OutlookBridgeManager:
                     log.error(f"VirtualLoopback [{user_id}]: Error processing attachment {fname}: {e}")
                     attachment_texts.append(f"--- FILE: {fname} ---\n[Read error: {e}]\n--- END ---")
 
-            # Build context
-            full_context = body
-            if attachment_texts:
-                full_context += "\n\n" + "\n\n".join(attachment_texts)
+            # Build attachment context (document text only, NOT the email body)
+            attachment_context = "\n\n".join(attachment_texts) if attachment_texts else ""
 
-            # Route to AI engine
+            # Append a note about files that were too large to send
+            if skipped_attachments:
+                skipped_note = (
+                    "[NOTE: The following attachments exceeded the size limit and could not be processed: "
+                    + ", ".join(skipped_attachments) + "]"
+                )
+                attachment_context = (attachment_context + "\n\n" + skipped_note).strip() if attachment_context else skipped_note
+                log.warning(f"VirtualLoopback [{user_id}]: {len(skipped_attachments)} attachment(s) were skipped: {skipped_attachments}")
+
+            # If the user attached files but ALL were skipped, return a clear error immediately.
+            # Do not fall back to RAG silently, as the user clearly wanted document analysis.
+            if has_attachments and not attachment_texts and skipped_attachments:
+                skipped_list = "\n".join(f"  • {s}" for s in skipped_attachments)
+                response_text = (
+                    f"Your email could not be processed because all attachments exceeded the size limits "
+                    f"(max {self._get_config_hint()} per file).\n\n"
+                    f"Files that were too large:\n{skipped_list}\n\n"
+                    f"Please compress the files or split them into smaller parts and try again."
+                )
+                response_html = self._markdown_to_html(response_text)
+                response_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "virtual_loopback/response",
+                    "params": {
+                        "request_id": request_id,
+                        "subject": subject,
+                        "conversation_id": conversation_id,
+                        "response_text": response_text,
+                        "response_html": response_html,
+                    }
+                }
+                ws = self.active_connections.get(user_id)
+                if ws:
+                    await ws.send_text(json.dumps(response_payload))
+                    log.info(f"VirtualLoopback [{user_id}]: Sent size-limit error response for '{subject}'")
+                return
+
+            # Route to AI engine (body and attachment_context are kept separate)
             has_real_attachments = has_attachments and len(attachments) > 0
             response_text = await self._route_to_ai_engine(
-                user_id, subject, full_context, use_rag=not has_real_attachments
+                user_id, subject, body, attachment_context, use_rag=not has_real_attachments
             )
 
             # Add CC disclaimer if needed
@@ -326,8 +362,28 @@ class OutlookBridgeManager:
             except Exception:
                 pass
 
-    async def _route_to_ai_engine(self, user_id: str, subject: str, full_context: str, use_rag: bool = True) -> str:
-        """Route the loopback request to the appropriate AI engine."""
+    def _get_config_hint(self) -> str:
+        """Return a human-readable size limit hint for error messages."""
+        try:
+            from src.config import LOOPBACK_MAX_ATTACHMENT_MB, LOOPBACK_MAX_TOTAL_MB
+            return f"{LOOPBACK_MAX_ATTACHMENT_MB} MB per file, {LOOPBACK_MAX_TOTAL_MB} MB total"
+        except ImportError:
+            return "25 MB per file, 50 MB total"
+
+    async def _route_to_ai_engine(
+        self,
+        user_id: str,
+        subject: str,
+        body: str,
+        attachment_context: str = "",
+        use_rag: bool = True
+    ) -> str:
+        """Route the loopback request to the appropriate AI engine.
+
+        For RAG (no attachments): optimize email body as a search query, search knowledge base.
+        For FILE_READER (with attachments): use body as the question/instruction,
+            attachment_context as the document content to analyse.
+        """
         from src.auth import load_users
         from src.engine import UserSession, optimize_prompt_for_rag
 
@@ -348,27 +404,37 @@ class OutlookBridgeManager:
         session = UserSession(username=username, role=role)
 
         if use_rag:
-            # Log the raw email received from Outlook
-            log.info(f"VirtualLoopback [{user_id}]: Incoming email | Subject='{subject}' | Body ({len(full_context)} chars):\n{full_context}")
+            # No attachments: optimise the email body as a RAG search query
+            log.info(f"VirtualLoopback [{user_id}]: Incoming email | Subject='{subject}' | Body ({len(body)} chars):\n{body}")
 
-            # Optimize prompt (mode determined by config: local/gemini/off)
             try:
-                optimized_query = await optimize_prompt_for_rag(subject, full_context)
+                optimized_query = await optimize_prompt_for_rag(subject, body)
                 log.info(f"VirtualLoopback [{user_id}]: Optimized prompt:\n{optimized_query}")
             except Exception as e:
                 log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed ({e}), using raw email as fallback")
-                optimized_query = f"Email Subject: {subject}\n\n{full_context}"
+                optimized_query = f"Email Subject: {subject}\n\n{body}"
 
             query = f"@rag {optimized_query}"
             mode_override = None
             log.info(f"VirtualLoopback [{user_id}]: Routing to RAG engine (no attachments)")
         else:
-            # Has attachments: inject content and use FILE_READER mode
-            log.info(f"VirtualLoopback [{user_id}]: Incoming email with attachments | Subject='{subject}' | Content ({len(full_context)} chars)")
-            query = f"Email Subject: {subject}\n\n{full_context}"
-            session.uploaded_context = full_context
+            # Has attachments: body = question, attachment_context = document text
+            # The body goes through optimize_prompt_for_rag to strip email noise and extract the
+            # core instruction (NER masking also applied if configured).
+            log.info(f"VirtualLoopback [{user_id}]: Incoming email with attachments | Subject='{subject}' | "
+                     f"Body ({len(body)} chars) | Attachment context ({len(attachment_context)} chars)")
+            try:
+                optimized_instruction = await optimize_prompt_for_rag(subject, body)
+                log.info(f"VirtualLoopback [{user_id}]: Optimized instruction:\n{optimized_instruction}")
+            except Exception as e:
+                log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed ({e}), using raw body as fallback")
+                optimized_instruction = f"Subject: {subject}\n\n{body}"
+
+            query = optimized_instruction          # What the user wants done with the document(s)
+            session.uploaded_context = attachment_context  # Document text only (no body duplication)
             mode_override = "FILE_READER"
-            log.info(f"VirtualLoopback [{user_id}]: Routing to FILE_READER engine ({len(full_context)} chars)")
+            log.info(f"VirtualLoopback [{user_id}]: Routing to FILE_READER engine "
+                     f"(instruction: {len(query)} chars | context: {len(attachment_context)} chars)")
 
         try:
             response_obj, response_text, used_mode = await session.run_chat_action(query, mode_override=mode_override)

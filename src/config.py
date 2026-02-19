@@ -108,6 +108,10 @@ PROMPT_OPTIMIZATION = os.getenv("PROMPT_OPTIMIZATION", "local")  # "local" | "ge
 ENABLE_NER_MASKING = os.getenv("ENABLE_NER_MASKING", "true").lower() == "true"
 NER_SCORE_THRESHOLD = float(os.getenv("NER_SCORE_THRESHOLD", "0.35"))  # Low threshold for privacy
 
+# --- Virtual Loopback attachment limits (must match C# PluginConfig defaults) ---
+LOOPBACK_MAX_ATTACHMENT_MB = int(os.getenv("LOOPBACK_MAX_ATTACHMENT_MB", "25"))
+LOOPBACK_MAX_TOTAL_MB = int(os.getenv("LOOPBACK_MAX_TOTAL_MB", "50"))
+
 # --- 9. DYNAMIC INTELLIGENCE (SYSTEM PROMPTS) ---
 
 CUSTOM_CONTEXT_TEMPLATE = (

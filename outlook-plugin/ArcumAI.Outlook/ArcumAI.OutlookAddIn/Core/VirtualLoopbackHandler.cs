@@ -248,18 +248,11 @@ namespace ArcumAI.OutlookAddIn.Core
 
                 _logAction("INFO", $"VirtualLoopback: Processing email '{subject}' (ID: {requestId})");
 
-                // Extract attachment metadata (Phase 1: text-only, attachments come in Phase 2)
-                bool hasAttachments = false;
-                Outlook.Attachments attachments = null;
-                try
-                {
-                    attachments = mail.Attachments;
-                    hasAttachments = attachments != null && attachments.Count > 0;
-                }
-                finally
-                {
-                    if (attachments != null) Marshal.ReleaseComObject(attachments);
-                }
+                // Extract attachments (base64 encoded, inline attachments skipped)
+                var (attachmentsArray, skippedAttachments) = ExtractAttachments(mail);
+                // has_attachments = true if the user attached anything, even if all were over the size limit.
+                // This lets the server give the right error instead of silently falling back to RAG.
+                bool hasAttachments = attachmentsArray.Count > 0 || skippedAttachments.Count > 0;
 
                 // Collect CC recipient names for disclaimer
                 var (_, _, ccNames) = AnalyzeRecipients(mail);
@@ -278,7 +271,8 @@ namespace ArcumAI.OutlookAddIn.Core
                         ["timestamp"] = DateTime.UtcNow.ToString("o"),
                         ["has_attachments"] = hasAttachments,
                         ["cc_recipients"] = JArray.FromObject(ccNames),
-                        ["attachments"] = new JArray() // Phase 2: will contain base64 data
+                        ["attachments"] = attachmentsArray,
+                        ["skipped_attachments"] = JArray.FromObject(skippedAttachments)
                     }
                 };
 
@@ -291,25 +285,32 @@ namespace ArcumAI.OutlookAddIn.Core
                     ConversationId = conversationId
                 };
 
-                // Simulate "Sent" status: copy to Sent Items (with timestamp)
-                SimulateSentItem(mail);
-
-                // Close the compose window and remove from Outbox (both must run on STA thread,
-                // before the first 'await' below - this is guaranteed by the call site)
-                CloseComposeWindow(mail);
-                DeleteFromOutbox(mail);
-
-                // Show processing notification
-                if (_config.ShowProcessingNotification)
+                // Defer COM cleanup to AFTER ItemSend returns.
+                // Running SimulateSentItem / CloseComposeWindow / DeleteFromOutbox
+                // synchronously inside the ItemSend handler blocks Outlook's STA thread
+                // and can cause a hang (mail.Copy() + inspector.Close() during send is dangerous).
+                // With Cancel=true the compose window stays open and the mail COM object
+                // remains valid, so the Post delegate can safely access it.
+                if (_syncContext != null)
+                    _syncContext.Post(_ => { SimulateSentItem(mail); CloseComposeWindow(mail); DeleteFromOutbox(mail); }, null);
+                else
                 {
-                    ShowToastNotification("ArcumAI",
-                        $"Processing: \"{subject}\"...");
+                    SimulateSentItem(mail);
+                    CloseComposeWindow(mail);
+                    DeleteFromOutbox(mail);
                 }
 
                 // Send via WebSocket
                 string jsonStr = payload.ToString(Formatting.None);
                 _logAction("DEBUG", $"VirtualLoopback TX: {(jsonStr.Length > 500 ? jsonStr.Substring(0, 500) + "..." : jsonStr)}");
                 await _transport.SendAsync(jsonStr);
+
+                // Show processing notification only after the send succeeded
+                if (_config.ShowProcessingNotification)
+                {
+                    ShowToastNotification("ArcumAI",
+                        $"Processing: \"{subject}\"...");
+                }
 
                 // Start timeout timer
                 _ = Task.Run(async () =>
@@ -326,6 +327,162 @@ namespace ArcumAI.OutlookAddIn.Core
             {
                 _logAction("ERROR", $"VirtualLoopback: Error processing email: {ex}");
                 _pendingRequests.TryRemove(requestId, out _);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        //  ATTACHMENT EXTRACTION
+        // ---------------------------------------------------------------
+
+        // MAPI property tag for Content-ID (identifies inline/embedded attachments like email signatures)
+        private const string PR_ATTACH_CONTENT_ID = "http://schemas.microsoft.com/mapi/proptag/0x3712001F";
+
+        /// <summary>
+        /// Extracts all real (non-inline) attachments from the mail as base64-encoded JObjects.
+        /// Returns (extracted, skipped) where skipped contains human-readable descriptions of
+        /// files that were excluded due to size limits or read errors.
+        /// </summary>
+        private (JArray extracted, List<string> skipped) ExtractAttachments(Outlook.MailItem mail)
+        {
+            var result = new JArray();
+            var skipped = new List<string>();
+            Outlook.Attachments attachments = null;
+
+            long maxFileBytes = (long)_config.MaxAttachmentSizeMB * 1024 * 1024;
+            long maxTotalBytes = (long)_config.MaxTotalAttachmentsMB * 1024 * 1024;
+            long totalBytes = 0;
+
+            try
+            {
+                attachments = mail.Attachments;
+                int count = attachments?.Count ?? 0;
+
+                if (count == 0) return (result, skipped);
+
+                _logAction("INFO", $"VirtualLoopback: Found {count} attachment(s), extracting...");
+
+                for (int i = 1; i <= count; i++)
+                {
+                    Outlook.Attachment att = null;
+                    string tempPath = null;
+
+                    try
+                    {
+                        att = attachments[i];
+
+                        // Skip inline attachments (embedded images used in email signatures/body)
+                        try
+                        {
+                            string contentId = att.PropertyAccessor.GetProperty(PR_ATTACH_CONTENT_ID) as string;
+                            if (!string.IsNullOrEmpty(contentId))
+                            {
+                                _logAction("DEBUG", $"VirtualLoopback: Skipping inline attachment '{att.FileName}' (Content-ID: {contentId})");
+                                continue;
+                            }
+                        }
+                        catch
+                        {
+                            // Property not present means it's a real attachment - proceed
+                        }
+
+                        string fileName = att.FileName ?? $"attachment_{i}";
+                        long fileSize = att.Size;
+
+                        // Per-file size limit
+                        if (fileSize > maxFileBytes)
+                        {
+                            string reason = $"{fileName} ({fileSize / 1024 / 1024} MB, limit is {_config.MaxAttachmentSizeMB} MB)";
+                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — exceeds per-file size limit");
+                            skipped.Add(reason);
+                            continue;
+                        }
+
+                        // Total size limit
+                        if (totalBytes + fileSize > maxTotalBytes)
+                        {
+                            string reason = $"{fileName} (total limit of {_config.MaxTotalAttachmentsMB} MB would be exceeded)";
+                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — total size limit reached");
+                            skipped.Add(reason);
+                            continue;
+                        }
+
+                        // Save to temp file and read bytes
+                        tempPath = Path.Combine(Path.GetTempPath(), $"arcumai_{Guid.NewGuid()}_{fileName}");
+                        att.SaveAsFile(tempPath);
+                        byte[] bytes = File.ReadAllBytes(tempPath);
+                        string base64 = Convert.ToBase64String(bytes);
+
+                        // Determine MIME type from extension
+                        string mimeType = GetMimeType(fileName);
+
+                        result.Add(new JObject
+                        {
+                            ["file_name"] = fileName,
+                            ["content_type"] = mimeType,
+                            ["size_bytes"] = fileSize,
+                            ["content_base64"] = base64
+                        });
+
+                        totalBytes += fileSize;
+                        _logAction("INFO", $"VirtualLoopback: Extracted '{fileName}' ({fileSize / 1024} KB, {mimeType})");
+                    }
+                    catch (Exception ex)
+                    {
+                        string name = att != null ? (att.FileName ?? $"#{i}") : $"#{i}";
+                        _logAction("WARNING", $"VirtualLoopback: Could not extract attachment '{name}': {ex.Message}");
+                        skipped.Add($"{name} (read error: {ex.Message})");
+                    }
+                    finally
+                    {
+                        if (att != null) Marshal.ReleaseComObject(att);
+                        if (tempPath != null && File.Exists(tempPath))
+                        {
+                            try { File.Delete(tempPath); } catch { }
+                        }
+                    }
+                }
+
+                _logAction("INFO", $"VirtualLoopback: Extracted {result.Count}/{count} attachment(s) ({totalBytes / 1024} KB total)" +
+                    (skipped.Count > 0 ? $", skipped {skipped.Count}" : ""));
+            }
+            catch (Exception ex)
+            {
+                _logAction("ERROR", $"VirtualLoopback: Attachment extraction failed: {ex.Message}");
+            }
+            finally
+            {
+                if (attachments != null) Marshal.ReleaseComObject(attachments);
+            }
+
+            return (result, skipped);
+        }
+
+        /// <summary>
+        /// Returns a MIME type string for common file extensions.
+        /// </summary>
+        private static string GetMimeType(string fileName)
+        {
+            string ext = Path.GetExtension(fileName)?.ToLowerInvariant() ?? "";
+            switch (ext)
+            {
+                case ".pdf":  return "application/pdf";
+                case ".docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                case ".doc":  return "application/msword";
+                case ".xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                case ".xls":  return "application/vnd.ms-excel";
+                case ".pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                case ".txt":  return "text/plain";
+                case ".csv":  return "text/csv";
+                case ".md":   return "text/markdown";
+                case ".msg":  return "application/vnd.ms-outlook";
+                case ".eml":  return "message/rfc822";
+                case ".png":  return "image/png";
+                case ".jpg":
+                case ".jpeg": return "image/jpeg";
+                case ".gif":  return "image/gif";
+                case ".tiff":
+                case ".tif":  return "image/tiff";
+                default:      return "application/octet-stream";
             }
         }
 
