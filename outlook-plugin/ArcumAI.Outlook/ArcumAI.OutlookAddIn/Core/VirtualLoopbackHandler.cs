@@ -250,9 +250,32 @@ namespace ArcumAI.OutlookAddIn.Core
 
                 // Extract attachments (base64 encoded, inline attachments skipped)
                 var (attachmentsArray, skippedAttachments) = ExtractAttachments(mail);
-                // has_attachments = true if the user attached anything, even if all were over the size limit.
-                // This lets the server give the right error instead of silently falling back to RAG.
                 bool hasAttachments = attachmentsArray.Count > 0 || skippedAttachments.Count > 0;
+
+                // If all attachments were rejected by size limits, inject the error reply
+                // locally — no server round-trip needed. Limits come from server config handshake.
+                if (hasAttachments && attachmentsArray.Count == 0)
+                {
+                    string bullets = string.Join("\n", skippedAttachments.ConvertAll(s => $"  • {s}"));
+                    var errorResponse = new JObject
+                    {
+                        ["request_id"] = requestId,
+                        ["subject"] = subject,
+                        ["conversation_id"] = conversationId,
+                        ["response_text"] =
+                            $"Your email could not be processed because all attachments exceeded " +
+                            $"the configured size limits (max {_config.MaxAttachmentSizeMB} MB per file, " +
+                            $"{_config.MaxTotalAttachmentsMB} MB total).\n\n" +
+                            $"Files that were too large:\n{bullets}\n\n" +
+                            "Please compress the files or split them into smaller parts and try again."
+                    };
+                    _logAction("INFO", $"VirtualLoopback: All attachments skipped for '{subject}' — error reply injected locally");
+                    if (_syncContext != null)
+                        _syncContext.Post(_ => { SimulateSentItem(mail); CloseComposeWindow(mail); DeleteFromOutbox(mail); CreateResponseEmail(errorResponse); }, null);
+                    else
+                    { SimulateSentItem(mail); CloseComposeWindow(mail); DeleteFromOutbox(mail); CreateResponseEmail(errorResponse); }
+                    return;
+                }
 
                 // Collect CC recipient names for disclaimer
                 var (_, _, ccNames) = AnalyzeRecipients(mail);

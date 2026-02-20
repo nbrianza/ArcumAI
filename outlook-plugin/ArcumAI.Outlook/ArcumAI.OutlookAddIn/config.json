@@ -8,17 +8,7 @@
   "EmailPreviewLength": 200,
   "EnableLogging": true,
   "LogLevel": "INFO",
-  "LogFilePath": "",
   "UseSecureConnection": false,
-  "UserId": "",
   "AutoReconnect": true,
-  "HeartbeatIntervalMs": 30000,
-
-  "EnableVirtualLoopback": true,
-  "ArcumAIEmailAddress": "arcumai@arcumai.swiss",
-  "ArcumAIDisplayName": "ArcumAI Assistant",
-  "MaxAttachmentSizeMB": 10,
-  "MaxTotalAttachmentsMB": 50,
-  "LoopbackTimeoutMs": 3600000,
-  "ShowProcessingNotification": true
+  "HeartbeatIntervalMs": 30000
 }

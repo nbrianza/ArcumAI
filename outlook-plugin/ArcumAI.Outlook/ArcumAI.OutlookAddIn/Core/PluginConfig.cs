@@ -93,7 +93,7 @@ namespace ArcumAI.OutlookAddIn.Core
 
             // Virtual Loopback defaults
             EnableVirtualLoopback = true;
-            ArcumAIEmailAddress = "arcumai@arcumai.ai";
+            ArcumAIEmailAddress = "arcumai@arcumai.swiss";
             ArcumAIDisplayName = "ArcumAI Assistant";
             MaxAttachmentSizeMB = 25;
             MaxTotalAttachmentsMB = 50;

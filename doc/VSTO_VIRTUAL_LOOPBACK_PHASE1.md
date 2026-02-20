@@ -416,22 +416,25 @@ python -c "from presidio_analyzer import AnalyzerEngine; print('OK')"
 
 ## Next Phases
 
-### Phase 2: Attachments
-- Add `ExtractAttachments()` with base64 encoding in `VirtualLoopbackHandler.cs`
-- Filter inline attachments (email signatures) via `PR_ATTACH_CONTENT_ID`
-- Size limit enforcement (25MB/file, 50MB total)
-- Full attachment processing pipeline on server
+### Phase 2: Attachments + Server-Driven Config ✅ COMPLETE (February 20, 2026)
+See `doc/VSTO_VIRTUAL_LOOPBACK_PHASE2.md` for full details.
+- ✅ `ExtractAttachments()` with base64 encoding in `VirtualLoopbackHandler.cs`
+- ✅ Inline attachment filtering via `PR_ATTACH_CONTENT_ID` MAPI property
+- ✅ Size limit enforcement (per-file and total); all-skipped error reply injected locally
+- ✅ `EnsureContactExists()` — ArcumAI contact created in Outlook address book
+- ✅ Server-driven config handshake (`client/identify` protocol)
+- ✅ `VSTO_*` env-var constants in `src/config.py`; `_build_client_config()` in `src/bridge.py`
+- ✅ `ApplyServerConfig()` in `ThisAddIn.cs` with full config dump to log
+- ✅ STA threading hardened — all COM operations via `_syncContext.Post()`
 
 ### Phase 3: UX Polish
 - Conversation threading (Message-ID, In-Reply-To headers)
 - Outlook category color configuration
-- HTML-styled response emails with ArcumAI branding
-- Outlook contact card for "ArcumAI" in address book
+- Enhanced HTML-styled response emails with ArcumAI branding
 
 ### Phase 4: Robustness
 - WebSocket message size monitoring
 - Concurrent request limiting
-- Temp file cleanup
 - Exchange/O365 sync validation
 
 ---

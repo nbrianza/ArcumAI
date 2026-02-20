@@ -22,6 +22,9 @@ class OutlookBridgeManager:
         # Map: request_id -> Future (the "semaphore" for waiting)
         self.pending_requests: Dict[str, asyncio.Future] = {}
 
+        # Map: user_id -> client_type (set during client/identify handshake)
+        self.client_types: Dict[str, str] = {}
+
     async def connect(self, websocket: WebSocket, user_id: str):
         await websocket.accept()
         self.active_connections[user_id] = websocket
@@ -30,6 +33,7 @@ class OutlookBridgeManager:
     def disconnect(self, user_id: str):
         if user_id in self.active_connections:
             del self.active_connections[user_id]
+        self.client_types.pop(user_id, None)
 
         # Fail-fast: cancel all pending requests for this user
         failed = []
@@ -112,6 +116,27 @@ class OutlookBridgeManager:
             log_preview = message[:500] + "..." if len(message) > 500 else message
             log.info(f"MCP RX [{user_id}]: {log_preview}")
 
+            # Client identification handshake — client declares its type, server pushes config
+            if data.get("method") == "client/identify":
+                request_id = data.get("id", str(uuid.uuid4()))
+                client_type = data.get("params", {}).get("client_type", "unknown")
+                client_version = data.get("params", {}).get("client_version", "?")
+                self.client_types[user_id] = client_type
+                config_block = self._build_client_config(client_type)
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {"status": "ok", "config": config_block}
+                }
+                ws = self.active_connections.get(user_id)
+                if ws:
+                    await ws.send_text(json.dumps(response))
+                if config_block:
+                    log.info(f"Bridge: '{user_id}' identified as '{client_type}' v{client_version} — config pushed ({len(config_block)} keys)")
+                else:
+                    log.warning(f"Bridge: '{user_id}' identified as unknown client_type '{client_type}' — no config pushed")
+                return
+
             # Virtual Loopback: email sent to ArcumAI by the plugin
             if data.get("method") == "virtual_loopback/send_email":
                 request_id = data.get("id", str(uuid.uuid4()))
@@ -164,6 +189,28 @@ class OutlookBridgeManager:
     #  VIRTUAL LOOPBACK: PROCESS EMAIL FROM PLUGIN
     # ------------------------------------------------------------------
 
+    def _build_client_config(self, client_type: str) -> dict:
+        """Return the config block to push for the given client_type.
+        Returns an empty dict for unknown types (client uses its own defaults)."""
+        if client_type == "vsto_outlook":
+            from src.config import (
+                VSTO_MAX_ATTACHMENT_MB, VSTO_MAX_TOTAL_MB,
+                VSTO_ARCUMAI_EMAIL, VSTO_ARCUMAI_DISPLAY_NAME,
+                VSTO_LOOPBACK_TIMEOUT_MS, VSTO_ENABLE_VIRTUAL_LOOPBACK,
+                VSTO_SHOW_NOTIFICATION,
+            )
+            return {
+                "max_attachment_size_mb":     VSTO_MAX_ATTACHMENT_MB,
+                "max_total_attachments_mb":   VSTO_MAX_TOTAL_MB,
+                "arcumai_email":              VSTO_ARCUMAI_EMAIL,
+                "arcumai_display_name":       VSTO_ARCUMAI_DISPLAY_NAME,
+                "loopback_timeout_ms":        VSTO_LOOPBACK_TIMEOUT_MS,
+                "enable_virtual_loopback":    VSTO_ENABLE_VIRTUAL_LOOPBACK,
+                "show_processing_notification": VSTO_SHOW_NOTIFICATION,
+            }
+        # Future client types: add elif blocks here
+        return {}
+
     async def _process_loopback_email(self, user_id: str, request_id: str, params: dict):
         """
         Process a virtual loopback email:
@@ -178,6 +225,10 @@ class OutlookBridgeManager:
         cc_recipients = params.get("cc_recipients", [])
         attachments = params.get("attachments", [])
         skipped_attachments = params.get("skipped_attachments", [])
+
+        # Use server-side config constants — single source of truth (pushed to client at connect)
+        from src.config import VSTO_MAX_ATTACHMENT_MB as max_attachment_size_mb, \
+                               VSTO_MAX_TOTAL_MB as max_total_attachments_mb
 
         try:
             log.info(f"VirtualLoopback [{user_id}]: Processing | Subject='{subject}' | "
@@ -213,8 +264,8 @@ class OutlookBridgeManager:
             if has_attachments and not attachment_texts and skipped_attachments:
                 skipped_list = "\n".join(f"  • {s}" for s in skipped_attachments)
                 response_text = (
-                    f"Your email could not be processed because all attachments exceeded the size limits "
-                    f"(max {self._get_config_hint()} per file).\n\n"
+                    f"Your email could not be processed because all attachments exceeded the configured size limits "
+                    f"(max {max_attachment_size_mb} MB per file, {max_total_attachments_mb} MB total).\n\n"
                     f"Files that were too large:\n{skipped_list}\n\n"
                     f"Please compress the files or split them into smaller parts and try again."
                 )
@@ -361,14 +412,6 @@ class OutlookBridgeManager:
                 tmp_path.unlink()
             except Exception:
                 pass
-
-    def _get_config_hint(self) -> str:
-        """Return a human-readable size limit hint for error messages."""
-        try:
-            from src.config import LOOPBACK_MAX_ATTACHMENT_MB, LOOPBACK_MAX_TOTAL_MB
-            return f"{LOOPBACK_MAX_ATTACHMENT_MB} MB per file, {LOOPBACK_MAX_TOTAL_MB} MB total"
-        except ImportError:
-            return "25 MB per file, 50 MB total"
 
     async def _route_to_ai_engine(
         self,

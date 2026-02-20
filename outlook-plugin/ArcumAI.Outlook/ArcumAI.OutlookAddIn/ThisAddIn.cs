@@ -19,11 +19,14 @@ namespace ArcumAI.OutlookAddIn
         private bool _isShuttingDown;
         private System.Timers.Timer _heartbeatTimer;
         private VirtualLoopbackHandler _loopbackHandler;
+        private string _pendingIdentifyId;          // tracks the in-flight client/identify request
+        private SynchronizationContext _syncContext; // captured on STA thread at startup
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             // 1. Load Configuration
             _config = PluginConfig.Instance;
+            _syncContext = SynchronizationContext.Current; // Outlook's STA thread context
 
             if (!_config.Validate(out string validationError))
             {
@@ -80,6 +83,7 @@ namespace ArcumAI.OutlookAddIn
                 _reconnectAttempt = 0;
                 Log("INFO", "Connected successfully");
 
+                await SendIdentify();
                 StartHeartbeat();
             }
             catch (Exception ex)
@@ -149,6 +153,83 @@ namespace ArcumAI.OutlookAddIn
                 _heartbeatTimer.Dispose();
                 _heartbeatTimer = null;
             }
+        }
+
+        private async Task SendIdentify()
+        {
+            try
+            {
+                _pendingIdentifyId = Guid.NewGuid().ToString();
+                var msg = new JObject
+                {
+                    ["jsonrpc"] = "2.0",
+                    ["method"] = "client/identify",
+                    ["id"] = _pendingIdentifyId,
+                    ["params"] = new JObject
+                    {
+                        ["client_type"] = "vsto_outlook",
+                        ["client_version"] = "2.0"
+                    }
+                };
+                await _transport.SendAsync(msg.ToString(Formatting.None));
+                Log("INFO", "Sent client/identify to server");
+            }
+            catch (Exception ex)
+            {
+                Log("WARNING", $"Failed to send client/identify: {ex.Message}");
+                _pendingIdentifyId = null;
+            }
+        }
+
+        private void ApplyServerConfig(JObject cfg)
+        {
+            if (cfg == null)
+            {
+                Log("DEBUG", "Config sync: empty config received — using all defaults");
+                return;
+            }
+
+            // Dump the raw received config for diagnostics
+            Log("INFO", $"Config sync received from server:{Environment.NewLine}{cfg.ToString(Formatting.Indented)}");
+
+            // Update _config properties — safe from any thread (simple value/reference writes)
+            int applied = 0;
+            if (cfg["max_attachment_size_mb"] != null)       { _config.MaxAttachmentSizeMB        = cfg.Value<int>("max_attachment_size_mb");    applied++; }
+            if (cfg["max_total_attachments_mb"] != null)     { _config.MaxTotalAttachmentsMB      = cfg.Value<int>("max_total_attachments_mb");  applied++; }
+            if (cfg["arcumai_email"] != null)                { _config.ArcumAIEmailAddress        = cfg.Value<string>("arcumai_email");          applied++; }
+            if (cfg["arcumai_display_name"] != null)         { _config.ArcumAIDisplayName         = cfg.Value<string>("arcumai_display_name");   applied++; }
+            if (cfg["loopback_timeout_ms"] != null)          { _config.LoopbackTimeoutMs          = cfg.Value<int>("loopback_timeout_ms");       applied++; }
+            if (cfg["enable_virtual_loopback"] != null)      { _config.EnableVirtualLoopback      = cfg.Value<bool>("enable_virtual_loopback");  applied++; }
+            if (cfg["show_processing_notification"] != null) { _config.ShowProcessingNotification = cfg.Value<bool>("show_processing_notification"); applied++; }
+
+            int total = 7;
+            Log(applied == total ? "INFO" : "DEBUG",
+                $"Config sync applied: {applied}/{total} keys — " +
+                $"MaxAttachment={_config.MaxAttachmentSizeMB}MB, " +
+                $"Email={_config.ArcumAIEmailAddress}, " +
+                $"Enabled={_config.EnableVirtualLoopback}");
+
+            // COM operations (ItemSend hook, contact creation) must run on Outlook's STA thread.
+            // This method is called from OnMessageFromArcum which runs on a thread-pool thread.
+            bool loopbackEnabled = _config.EnableVirtualLoopback;
+            void ApplyComChanges(object _)
+            {
+                if (loopbackEnabled)
+                {
+                    try { this.Application.ItemSend -= Application_ItemSend; } catch { }
+                    this.Application.ItemSend += Application_ItemSend;
+                    _loopbackHandler?.EnsureContactExists();
+                }
+                else
+                {
+                    try { this.Application.ItemSend -= Application_ItemSend; } catch { }
+                }
+            }
+
+            if (_syncContext != null)
+                _syncContext.Post(ApplyComChanges, null);
+            else
+                ApplyComChanges(null); // already on STA (shouldn't happen in practice)
         }
 
         private void OnDisconnected(object sender, EventArgs e)
@@ -230,11 +311,20 @@ namespace ArcumAI.OutlookAddIn
                 string method = (string)request["method"];
                 string id = (string)request["id"];
 
-                // Handle virtual_loopback/response first (it's a notification with no id)
+                // Handle virtual_loopback/response (push notification, no id)
                 if (method == "virtual_loopback/response")
                 {
                     Log("INFO", "VirtualLoopback: Received AI response from server");
                     _loopbackHandler.HandleServerResponse(request["params"] as JObject);
+                    return;
+                }
+
+                // Handle client/identify response (has id + result.config, no method)
+                JToken result = request["result"];
+                if (result != null && !string.IsNullOrEmpty(_pendingIdentifyId) && id == _pendingIdentifyId)
+                {
+                    _pendingIdentifyId = null;
+                    ApplyServerConfig(result["config"] as JObject);
                     return;
                 }
 
