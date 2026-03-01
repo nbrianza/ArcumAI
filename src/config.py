@@ -115,11 +115,17 @@ NER_SCORE_THRESHOLD = float(os.getenv("NER_SCORE_THRESHOLD", "0.35"))  # Low thr
 # VSTO Outlook plugin
 VSTO_MAX_ATTACHMENT_MB       = int(os.getenv("VSTO_MAX_ATTACHMENT_MB", "25"))
 VSTO_MAX_TOTAL_MB            = int(os.getenv("VSTO_MAX_TOTAL_MB", "50"))
+VSTO_MAX_PAYLOAD_MB          = int(os.getenv("VSTO_MAX_PAYLOAD_MB", "30"))
 VSTO_ARCUMAI_EMAIL           = os.getenv("VSTO_ARCUMAI_EMAIL", "arcumai@arcumai.swiss")
 VSTO_ARCUMAI_DISPLAY_NAME    = os.getenv("VSTO_ARCUMAI_DISPLAY_NAME", "ArcumAI Assistant")
 VSTO_LOOPBACK_TIMEOUT_MS     = int(os.getenv("VSTO_LOOPBACK_TIMEOUT_MS", "3600000"))
 VSTO_ENABLE_VIRTUAL_LOOPBACK = os.getenv("VSTO_ENABLE_VIRTUAL_LOOPBACK", "true").lower() == "true"
 VSTO_SHOW_NOTIFICATION       = os.getenv("VSTO_SHOW_NOTIFICATION", "true").lower() == "true"
+
+# --- 10. LOOPBACK QUEUE & RESILIENCE ---
+LOOPBACK_MAX_CONCURRENT  = int(os.getenv("LOOPBACK_MAX_CONCURRENT", "3"))
+PENDING_RESULT_TTL_HOURS = int(os.getenv("PENDING_RESULT_TTL_HOURS", "48"))
+PENDING_RESULTS_DIR      = os.getenv("PENDING_RESULTS_DIR", "temp/pending_results")
 
 # --- 10. DYNAMIC INTELLIGENCE (SYSTEM PROMPTS) ---
 

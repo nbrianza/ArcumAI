@@ -35,6 +35,7 @@ namespace ArcumAI.OutlookAddIn.Core
         public string ArcumAIDisplayName { get; set; }
         public int MaxAttachmentSizeMB { get; set; }
         public int MaxTotalAttachmentsMB { get; set; }
+        public int MaxPayloadSizeMB { get; set; }
         public int LoopbackTimeoutMs { get; set; }
         public bool ShowProcessingNotification { get; set; }
 
@@ -97,6 +98,7 @@ namespace ArcumAI.OutlookAddIn.Core
             ArcumAIDisplayName = "ArcumAI Assistant";
             MaxAttachmentSizeMB = 25;
             MaxTotalAttachmentsMB = 50;
+            MaxPayloadSizeMB = 30;
             LoopbackTimeoutMs = 3600000; // 1 hour for large documents
             ShowProcessingNotification = true;
         }
@@ -205,6 +207,9 @@ namespace ArcumAI.OutlookAddIn.Core
 
             if (appSettings["MaxTotalAttachmentsMB"] != null && int.TryParse(appSettings["MaxTotalAttachmentsMB"], out int maxTotalAtt))
                 MaxTotalAttachmentsMB = maxTotalAtt;
+
+            if (appSettings["MaxPayloadSizeMB"] != null && int.TryParse(appSettings["MaxPayloadSizeMB"], out int maxPayload))
+                MaxPayloadSizeMB = maxPayload;
 
             if (appSettings["LoopbackTimeoutMs"] != null && int.TryParse(appSettings["LoopbackTimeoutMs"], out int lbTimeout))
                 LoopbackTimeoutMs = lbTimeout;

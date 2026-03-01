@@ -567,10 +567,22 @@ Changes take effect on next plugin connect (no Outlook restart required if serve
 - ✅ Server-driven config handshake (`client/identify` protocol)
 - ✅ `VSTO_*` env-var-configurable constants on server (`src/config.py`)
 - ✅ `_build_client_config()` on server — extensible to future client types
-- ✅ `ApplyServerConfig()` on client — applies 7 keys, logs full received config
+- ✅ `ApplyServerConfig()` on client — applies 7 keys, logs full received config (extended to 8 in Phase 3)
 - ✅ All-skipped error path — local error reply, no wasted server round-trip
 - ✅ STA thread safety — all COM operations via `_syncContext.Post()`
 - ✅ `config.json` cleaned up — server-driven properties removed
 
 ### Key Architectural Decision
 **Server is the single source of truth for behavioral config.** Attachment limits, email address, timeouts, and feature flags are all defined once in `src/config.py` (overridable via `.env`) and pushed to the plugin at connect time. Adding a new client type (mobile, web) requires only a new branch in `_build_client_config()`.
+
+---
+
+## Next Phase
+
+**Phase 3** (February 23, 2026) — Robustness & UX Polish → see [VSTO_VIRTUAL_LOOPBACK_PHASE3.md](VSTO_VIRTUAL_LOOPBACK_PHASE3.md)
+
+- Email conversation threading (In-Reply-To / References MAPI headers)
+- Payload size guard — 8th server-driven config key (`max_payload_size_mb`)
+- Per-user priority queue + global AI semaphore
+- Disconnect resilience: temp file storage, delivery on reconnect, deduplication
+- Exchange/O365 MAPI hardening

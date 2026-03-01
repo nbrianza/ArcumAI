@@ -246,6 +246,36 @@ namespace ArcumAI.OutlookAddIn.Core
                 string body = mail.Body ?? "";
                 string conversationId = mail.ConversationID ?? Guid.NewGuid().ToString();
 
+                // Read PR_CONVERSATION_INDEX from the compose window item.
+                // This 22-byte header is the basis Exchange uses to compute ConversationID.
+                // We store it so CreateResponseEmail can set a reply-level continuation,
+                // causing Exchange to assign the same ConversationID to both emails.
+                byte[] conversationIndex = null;
+                try
+                {
+                    object raw = mail.PropertyAccessor.GetProperty(
+                        "http://schemas.microsoft.com/mapi/proptag/0x00710102"); // PR_CONVERSATION_INDEX
+                    if (raw is byte[] b) conversationIndex = b;
+                }
+                catch (Exception ex)
+                {
+                    _logAction("DEBUG", $"MAPI [PR_CONVERSATION_INDEX read]: {ex.Message}");
+                }
+
+                // Generate and assign a stable Message-ID for email threading.
+                // Stored on the original email so the response can set In-Reply-To.
+                string originalMessageId = $"<arcumai-orig-{requestId}@local>";
+                try
+                {
+                    mail.PropertyAccessor.SetProperty(
+                        "http://schemas.microsoft.com/mapi/proptag/0x1035001F", // PR_INTERNET_MESSAGE_ID
+                        originalMessageId);
+                }
+                catch (Exception ex)
+                {
+                    _logAction("DEBUG", $"MAPI [PR_INTERNET_MESSAGE_ID on original]: {ex.Message}");
+                }
+
                 _logAction("INFO", $"VirtualLoopback: Processing email '{subject}' (ID: {requestId})");
 
                 // Extract attachments (base64 encoded, inline attachments skipped)
@@ -262,6 +292,7 @@ namespace ArcumAI.OutlookAddIn.Core
                         ["request_id"] = requestId,
                         ["subject"] = subject,
                         ["conversation_id"] = conversationId,
+                        ["original_message_id"] = originalMessageId,
                         ["response_text"] =
                             $"Your email could not be processed because all attachments exceeded " +
                             $"the configured size limits (max {_config.MaxAttachmentSizeMB} MB per file, " +
@@ -271,9 +302,9 @@ namespace ArcumAI.OutlookAddIn.Core
                     };
                     _logAction("INFO", $"VirtualLoopback: All attachments skipped for '{subject}' — error reply injected locally");
                     if (_syncContext != null)
-                        _syncContext.Post(_ => { SimulateSentItem(mail); CloseComposeWindow(mail); DeleteFromOutbox(mail); CreateResponseEmail(errorResponse); }, null);
+                        _syncContext.Post(_ => { SimulateSentItem(mail); DeleteInterceptedItem(mail); CreateResponseEmail(errorResponse); }, null);
                     else
-                    { SimulateSentItem(mail); CloseComposeWindow(mail); DeleteFromOutbox(mail); CreateResponseEmail(errorResponse); }
+                    { SimulateSentItem(mail); DeleteInterceptedItem(mail); CreateResponseEmail(errorResponse); }
                     return;
                 }
 
@@ -291,40 +322,71 @@ namespace ArcumAI.OutlookAddIn.Core
                         ["subject"] = subject,
                         ["body"] = body,
                         ["conversation_id"] = conversationId,
+                        ["original_message_id"] = originalMessageId,
                         ["timestamp"] = DateTime.UtcNow.ToString("o"),
                         ["has_attachments"] = hasAttachments,
+                        ["importance"] = (int)mail.Importance,  // 0=Low, 1=Normal, 2=High
                         ["cc_recipients"] = JArray.FromObject(ccNames),
                         ["attachments"] = attachmentsArray,
                         ["skipped_attachments"] = JArray.FromObject(skippedAttachments)
                     }
                 };
 
-                // Track the pending request
+                // Payload size guard — runs BEFORE registering _pendingRequests or posting COM cleanup.
+                // This ensures an over-size abort has zero side-effects:
+                //   Bug 1 fix: no prior COM post exists, so the single combined post below runs exactly once.
+                //   Bug 2 fix: _pendingRequests is never touched, so no ghost entry on disconnect.
+                string jsonStr = payload.ToString(Formatting.None);
+                long payloadMB = System.Text.Encoding.UTF8.GetByteCount(jsonStr) / (1024 * 1024);
+                long hardLimitMB = _config.MaxPayloadSizeMB;
+                if (payloadMB >= hardLimitMB)
+                {
+                    _logAction("WARNING", $"VirtualLoopback: Payload {payloadMB} MB >= limit {hardLimitMB} MB — aborted");
+                    var sizeErrorResp = new JObject
+                    {
+                        ["request_id"] = requestId,
+                        ["subject"] = subject,
+                        ["conversation_id"] = conversationId,
+                        ["original_message_id"] = originalMessageId,
+                        ["response_text"] =
+                            $"The email payload ({payloadMB} MB) exceeds the maximum allowed size " +
+                            $"({hardLimitMB} MB). Please reduce the number or size of attachments."
+                    };
+                    // Single combined post: COM cleanup + error response. Runs exactly once.
+                    if (_syncContext != null)
+                        _syncContext.Post(_ => { SimulateSentItem(mail); DeleteInterceptedItem(mail); CreateResponseEmail(sizeErrorResp); }, null);
+                    else { SimulateSentItem(mail); DeleteInterceptedItem(mail); CreateResponseEmail(sizeErrorResp); }
+                    return;  // _pendingRequests never touched — no ghost entry on disconnect
+                }
+                else if (payloadMB >= hardLimitMB * 7 / 10)
+                    _logAction("WARNING", $"VirtualLoopback: Large payload: {payloadMB} MB (limit: {hardLimitMB} MB)");
+
+                // Track the pending request (registered only after payload passes the size guard)
                 _pendingRequests[requestId] = new LoopbackRequest
                 {
                     RequestId = requestId,
                     OriginalSubject = subject,
                     SentAt = DateTime.UtcNow,
-                    ConversationId = conversationId
+                    ConversationId = conversationId,
+                    OriginalMessageId = originalMessageId,
+                    ConversationIndex = conversationIndex
                 };
 
                 // Defer COM cleanup to AFTER ItemSend returns.
-                // Running SimulateSentItem / CloseComposeWindow / DeleteFromOutbox
-                // synchronously inside the ItemSend handler blocks Outlook's STA thread
-                // and can cause a hang (mail.Copy() + inspector.Close() during send is dangerous).
+                // Running SimulateSentItem / DeleteInterceptedItem synchronously inside
+                // the ItemSend handler blocks Outlook's STA thread and can cause a hang
+                // (mail.Copy() + inspector.Close() during send is dangerous).
                 // With Cancel=true the compose window stays open and the mail COM object
                 // remains valid, so the Post delegate can safely access it.
                 if (_syncContext != null)
-                    _syncContext.Post(_ => { SimulateSentItem(mail); CloseComposeWindow(mail); DeleteFromOutbox(mail); }, null);
+                    _syncContext.Post(_ => { SimulateSentItem(mail); DeleteInterceptedItem(mail); }, null);
                 else
                 {
                     SimulateSentItem(mail);
-                    CloseComposeWindow(mail);
-                    DeleteFromOutbox(mail);
+                    DeleteInterceptedItem(mail);
                 }
 
                 // Send via WebSocket
-                string jsonStr = payload.ToString(Formatting.None);
                 _logAction("DEBUG", $"VirtualLoopback TX: {(jsonStr.Length > 500 ? jsonStr.Substring(0, 500) + "..." : jsonStr)}");
                 await _transport.SendAsync(jsonStr);
 
@@ -342,7 +404,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     if (_pendingRequests.TryRemove(requestId, out var req))
                     {
                         _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
-                        InjectResponseOnMainThread(CreateTimeoutResponse(req));
+                        InjectResponseOnMainThread(CreateTimeoutResponse(req), req);
                     }
                 });
             }
@@ -535,7 +597,58 @@ namespace ArcumAI.OutlookAddIn.Core
                 }
                 catch (Exception ex)
                 {
-                    _logAction("DEBUG", $"VirtualLoopback: Could not set sent time: {ex.Message}");
+                    _logAction("DEBUG", $"MAPI [PR_CLIENT_SUBMIT_TIME]: {ex.Message}");
+                }
+
+                // Exchange Online stores sender addresses in X.500 DN format in the compose window item.
+                // Explicitly override with SMTP-format addresses so the conversation view shows the
+                // user's friendly display name instead of "/o=First Organization/ou=Exchange
+                // Administrative Group(FYDIBOHF23SPDLT)/cn=Recip..." in the Sent Items copy.
+                try
+                {
+                    Outlook.AddressEntry addrEntry = null;
+                    Outlook.ExchangeUser exUser = null;
+                    try
+                    {
+                        addrEntry = session.CurrentUser?.AddressEntry;
+                        exUser = addrEntry?.GetExchangeUser();
+                        string displayName = session.CurrentUser?.Name ?? "";
+                        string smtpAddress = exUser?.PrimarySmtpAddress ?? "";
+
+                        if (!string.IsNullOrEmpty(displayName))
+                        {
+                            copy.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x0042001F", // PR_SENT_REPRESENTING_NAME
+                                displayName);
+                            copy.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x0C1A001F", // PR_SENDER_NAME
+                                displayName);
+                        }
+                        if (!string.IsNullOrEmpty(smtpAddress))
+                        {
+                            copy.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x0065001F", // PR_SENT_REPRESENTING_EMAIL_ADDRESS
+                                smtpAddress);
+                            copy.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x0C1F001F", // PR_SENDER_EMAIL_ADDRESS
+                                smtpAddress);
+                            copy.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x0064001F", // PR_SENT_REPRESENTING_ADDRTYPE
+                                "SMTP");
+                            copy.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x0C1E001F", // PR_SENDER_ADDRTYPE
+                                "SMTP");
+                        }
+                    }
+                    finally
+                    {
+                        if (exUser != null) Marshal.ReleaseComObject(exUser);
+                        if (addrEntry != null) Marshal.ReleaseComObject(addrEntry);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logAction("DEBUG", $"MAPI [PR_SENDER on sent copy]: {ex.Message}");
                 }
 
                 copy.Move(sentFolder);
@@ -598,6 +711,27 @@ namespace ArcumAI.OutlookAddIn.Core
             finally
             {
                 if (inspectors != null) Marshal.ReleaseComObject(inspectors);
+            }
+        }
+
+        /// <summary>
+        /// Closes the compose window (if still open) and deletes the intercepted mail item.
+        /// Calling mail.Delete() directly on the reference we hold removes the item from
+        /// wherever Outlook put it — Drafts (auto-save), Outbox, or in-memory — and closes
+        /// any associated inspector without triggering a "Do you want to save?" prompt.
+        /// Must be called on Outlook's main STA thread.
+        /// </summary>
+        private void DeleteInterceptedItem(Outlook.MailItem mail)
+        {
+            CloseComposeWindow(mail);   // close inspector first (best-effort)
+            try
+            {
+                mail.Delete();
+                _logAction("DEBUG", "VirtualLoopback: Deleted intercepted item");
+            }
+            catch (Exception ex)
+            {
+                _logAction("DEBUG", $"VirtualLoopback: Could not delete intercepted item: {ex.Message}");
             }
         }
 
@@ -672,28 +806,29 @@ namespace ArcumAI.OutlookAddIn.Core
 
             string requestId = responseParams["request_id"]?.ToString() ?? "";
 
-            // Remove from pending (cancel timeout)
+            // Remove from pending (cancel timeout) and pass the stored request to CreateResponseEmail
+            // so it can use ConversationIndex for proper Exchange conversation threading.
             _pendingRequests.TryRemove(requestId, out var originalRequest);
 
             string subject = responseParams["subject"]?.ToString() ?? "ArcumAI";
             _logAction("INFO", $"VirtualLoopback: Received AI response for '{subject}' (ID: {requestId})");
 
-            InjectResponseOnMainThread(responseParams);
+            InjectResponseOnMainThread(responseParams, originalRequest);
         }
 
         /// <summary>
         /// Marshal the email creation to Outlook's main STA thread.
         /// </summary>
-        private void InjectResponseOnMainThread(JObject responseData)
+        private void InjectResponseOnMainThread(JObject responseData, LoopbackRequest originalRequest = null)
         {
             if (_syncContext != null)
             {
-                _syncContext.Post(_ => CreateResponseEmail(responseData), null);
+                _syncContext.Post(_ => CreateResponseEmail(responseData, originalRequest), null);
             }
             else
             {
                 // Fallback: direct call (may be on STA thread already)
-                CreateResponseEmail(responseData);
+                CreateResponseEmail(responseData, originalRequest);
             }
         }
 
@@ -701,7 +836,7 @@ namespace ArcumAI.OutlookAddIn.Core
         /// Create a new MailItem in the Inbox with the AI response.
         /// MUST be called on Outlook's main STA thread.
         /// </summary>
-        private void CreateResponseEmail(JObject responseData)
+        private void CreateResponseEmail(JObject responseData, LoopbackRequest originalRequest = null)
         {
             Outlook.NameSpace session = null;
             Outlook.MAPIFolder inbox = null;
@@ -718,6 +853,21 @@ namespace ArcumAI.OutlookAddIn.Core
 
                 string subject = responseData["subject"]?.ToString() ?? "ArcumAI";
                 responseItem.Subject = "Re: " + subject;
+
+                // PR_CONVERSATION_TOPIC is the key Outlook uses to group messages into conversations.
+                // For a fresh CreateItem(), setting Subject does NOT automatically normalise it
+                // (i.e. strip "Re:"), so the topic ends up as "Re: ..." instead of the bare subject.
+                // We must set it explicitly to match the original email's topic.
+                try
+                {
+                    responseItem.PropertyAccessor.SetProperty(
+                        "http://schemas.microsoft.com/mapi/proptag/0x0070001F", // PR_CONVERSATION_TOPIC
+                        subject); // bare subject, no "Re:" prefix
+                }
+                catch (Exception ex)
+                {
+                    _logAction("DEBUG", $"MAPI [PR_CONVERSATION_TOPIC]: {ex.Message}");
+                }
 
                 // Set body (prefer HTML if available)
                 string responseHtml = responseData["response_html"]?.ToString();
@@ -745,9 +895,9 @@ namespace ArcumAI.OutlookAddIn.Core
                         "http://schemas.microsoft.com/mapi/proptag/0x0065001F", // PR_SENT_REPRESENTING_EMAIL_ADDRESS
                         _config.ArcumAIEmailAddress);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // MAPI properties may not be settable in all configurations
+                    _logAction("DEBUG", $"MAPI [PR_SENT_REPRESENTING]: {ex.Message}");
                 }
 
                 // Set delivery time to now
@@ -759,10 +909,10 @@ namespace ArcumAI.OutlookAddIn.Core
                 }
                 catch (Exception ex)
                 {
-                    _logAction("DEBUG", $"VirtualLoopback: Could not set delivery time: {ex.Message}");
+                    _logAction("DEBUG", $"MAPI [PR_MESSAGE_DELIVERY_TIME]: {ex.Message}");
                 }
 
-                // Set a unique Message-ID for threading
+                // Set a unique Message-ID for the response
                 try
                 {
                     string messageId = $"<arcumai-{Guid.NewGuid()}@local>";
@@ -772,7 +922,49 @@ namespace ArcumAI.OutlookAddIn.Core
                 }
                 catch (Exception ex)
                 {
-                    _logAction("DEBUG", $"VirtualLoopback: Could not set Message-ID: {ex.Message}");
+                    _logAction("DEBUG", $"MAPI [PR_INTERNET_MESSAGE_ID]: {ex.Message}");
+                }
+
+                // Set In-Reply-To and References for Outlook conversation threading
+                string originalMsgId = responseData["original_message_id"]?.ToString();
+                if (!string.IsNullOrEmpty(originalMsgId))
+                {
+                    try
+                    {
+                        responseItem.PropertyAccessor.SetProperty(
+                            "http://schemas.microsoft.com/mapi/proptag/0x1042001F", // PR_IN_REPLY_TO_ID
+                            originalMsgId);
+                        responseItem.PropertyAccessor.SetProperty(
+                            "http://schemas.microsoft.com/mapi/proptag/0x1039001F", // PR_INTERNET_REFERENCES
+                            originalMsgId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logAction("DEBUG", $"MAPI [PR_IN_REPLY_TO_ID/PR_INTERNET_REFERENCES]: {ex.Message}");
+                    }
+                }
+
+                // Set a reply-level PR_CONVERSATION_INDEX derived from the original compose window item.
+                // Exchange Online computes ConversationID from the first 22 bytes of this property.
+                // Sharing the same header ensures both the Sent Items copy and this response get the
+                // same Exchange ConversationID, so they appear grouped in conversation view.
+                byte[] parentIndex = originalRequest?.ConversationIndex;
+                if (parentIndex != null && parentIndex.Length >= 22)
+                {
+                    byte[] replyIndex = CreateReplyConversationIndex(parentIndex);
+                    if (replyIndex != null)
+                    {
+                        try
+                        {
+                            responseItem.PropertyAccessor.SetProperty(
+                                "http://schemas.microsoft.com/mapi/proptag/0x00710102", // PR_CONVERSATION_INDEX
+                                replyIndex);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logAction("DEBUG", $"MAPI [PR_CONVERSATION_INDEX]: {ex.Message}");
+                        }
+                    }
                 }
 
                 // Add category for visual distinction
@@ -805,6 +997,27 @@ namespace ArcumAI.OutlookAddIn.Core
         }
 
         // ---------------------------------------------------------------
+        //  DISCONNECT NOTIFICATION
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Called when the WebSocket disconnects. Shows a toast if there are pending requests
+        /// so the user knows processing is continuing on the server.
+        /// Does NOT inject error emails — the server keeps processing and delivers on reconnect.
+        /// The 1-hour timeout timer remains as a safety net if the server also goes down.
+        /// </summary>
+        public void NotifyPendingOnDisconnect()
+        {
+            int count = _pendingRequests.Count;
+            if (count == 0) return;
+            _logAction("WARNING",
+                $"VirtualLoopback: {count} request(s) still processing — results will be delivered on reconnect");
+            ShowToastNotification("ArcumAI",
+                $"{count} request(s) still processing.\n" +
+                "Results will be delivered when the connection is restored.");
+        }
+
+        // ---------------------------------------------------------------
         //  TIMEOUT RESPONSE
         // ---------------------------------------------------------------
 
@@ -815,12 +1028,36 @@ namespace ArcumAI.OutlookAddIn.Core
                 ["request_id"] = req.RequestId,
                 ["subject"] = req.OriginalSubject,
                 ["conversation_id"] = req.ConversationId,
+                ["original_message_id"] = req.OriginalMessageId ?? "",
                 ["response_text"] = "The request has timed out. The document may be too large or complex. " +
                     "Please try again with a smaller file or contact your administrator.",
                 ["response_html"] = "<p style='color:#e67e22; font-weight:bold;'>" +
                     "Timeout: The request has exceeded the time limit. " +
                     "The document may be too large or complex.</p>"
             };
+        }
+
+        // ---------------------------------------------------------------
+        //  CONVERSATION INDEX HELPER
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Extends a parent conversation index to a reply-level continuation (27 bytes).
+        /// Exchange Online derives ConversationID from the first 22 bytes of this property,
+        /// so keeping the same header makes the reply join the original email's conversation.
+        ///
+        /// Format (per MAPI spec):
+        ///   Bytes 0-21 : header (version=0x01, 5-byte FILETIME, 16-byte GUID) — copied from parent
+        ///   Bytes 22-26: response level block (5 zero bytes = reply, delta=0)
+        /// </summary>
+        private static byte[] CreateReplyConversationIndex(byte[] parentIndex)
+        {
+            if (parentIndex == null || parentIndex.Length < 22) return null;
+
+            byte[] result = new byte[27];
+            Array.Copy(parentIndex, result, 22);   // header from parent
+            // bytes 22-26 stay 0x00: direction=reply, delta=0
+            return result;
         }
 
         // ---------------------------------------------------------------
@@ -891,6 +1128,8 @@ namespace ArcumAI.OutlookAddIn.Core
         public string RequestId { get; set; }
         public string OriginalSubject { get; set; }
         public string ConversationId { get; set; }
+        public string OriginalMessageId { get; set; }
+        public byte[] ConversationIndex { get; set; }
         public DateTime SentAt { get; set; }
     }
 }
