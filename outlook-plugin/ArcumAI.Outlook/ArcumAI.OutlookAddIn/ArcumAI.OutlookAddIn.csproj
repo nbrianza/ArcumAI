@@ -201,6 +201,7 @@
     <Compile Include="Core\Loopback\OutlookMailFactory.cs" />
     <Compile Include="Core\OutlookDataProvider.cs" />
     <Compile Include="Core\PluginLogger.cs" />
+    <Compile Include="Core\PluginConfigLoader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
