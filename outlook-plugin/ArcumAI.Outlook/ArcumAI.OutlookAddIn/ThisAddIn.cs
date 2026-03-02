@@ -19,6 +19,7 @@ namespace ArcumAI.OutlookAddIn
         private bool _isShuttingDown;
         private System.Timers.Timer _heartbeatTimer;
         private VirtualLoopbackHandler _loopbackHandler;
+        private OutlookDataProvider _dataProvider;
         private string _pendingIdentifyId;          // tracks the in-flight client/identify request
         private SynchronizationContext _syncContext; // captured on STA thread at startup
 
@@ -58,6 +59,7 @@ namespace ArcumAI.OutlookAddIn
             // 4. Setup Virtual Loopback
             _loopbackHandler = new VirtualLoopbackHandler(
                 this.Application, _transport, _config, Log);
+            _dataProvider = new OutlookDataProvider(this.Application, _config, Log);
 
             if (_config.EnableVirtualLoopback)
             {
@@ -349,12 +351,12 @@ namespace ArcumAI.OutlookAddIn
                     if (toolName == "search_emails")
                     {
                         string query = (string)args["query"] ?? "";
-                        resultData = GetEmails(query);
+                        resultData = _dataProvider.GetEmails(query);
                     }
                     else if (toolName == "get_calendar")
                     {
                         string filter = (string)args["filter"] ?? "today";
-                        resultData = GetCalendar(filter);
+                        resultData = _dataProvider.GetCalendar(filter);
                     }
                     else
                     {
@@ -385,138 +387,6 @@ namespace ArcumAI.OutlookAddIn
             {
                 Log("ERROR", $"Error handling message: {ex}");
             }
-        }
-
-        // --- OUTLOOK FUNCTIONS ---
-
-        private List<string> GetEmails(string query)
-        {
-            var results = new List<string>();
-            Outlook.NameSpace session = null;
-            Outlook.MAPIFolder inbox = null;
-            Outlook.Items items = null;
-
-            try
-            {
-                session = Application.Session;
-                inbox = session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-                items = inbox.Items;
-                items.Sort("[ReceivedTime]", true);
-
-                int count = 0;
-                int maxResults = _config.MaxEmailResults;
-                int previewLen = _config.EmailPreviewLength;
-
-                foreach (object item in items)
-                {
-                    try
-                    {
-                        if (item is Outlook.MailItem mail)
-                        {
-                            if (!string.IsNullOrEmpty(query))
-                            {
-                                string searchContent = (mail.Subject + " " + mail.SenderName).ToLower();
-                                if (!searchContent.Contains(query.ToLower())) continue;
-                            }
-
-                            string snippet = mail.Body != null && mail.Body.Length > previewLen
-                                ? mail.Body.Substring(0, previewLen) + "..."
-                                : mail.Body;
-                            results.Add($"[{mail.ReceivedTime:g}] FROM: {mail.SenderName} | SUBJECT: {mail.Subject} | PREVIEW: {snippet}");
-                            count++;
-                        }
-                    }
-                    finally
-                    {
-                        Marshal.ReleaseComObject(item);
-                    }
-                    if (count >= maxResults) break;
-                }
-
-                Log("INFO", $"GetEmails: found {results.Count} emails for query '{query}'");
-            }
-            catch (Exception ex)
-            {
-                results.Add($"Error reading emails: {ex.Message}");
-                Log("ERROR", $"GetEmails error: {ex.Message}");
-            }
-            finally
-            {
-                if (items != null) Marshal.ReleaseComObject(items);
-                if (inbox != null) Marshal.ReleaseComObject(inbox);
-                if (session != null) Marshal.ReleaseComObject(session);
-            }
-            return results;
-        }
-
-        private List<string> GetCalendar(string filter)
-        {
-            var results = new List<string>();
-            Outlook.NameSpace session = null;
-            Outlook.MAPIFolder calendar = null;
-            Outlook.Items items = null;
-            Outlook.Items restrictedItems = null;
-
-            try
-            {
-                session = Application.Session;
-                calendar = session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderCalendar);
-                items = calendar.Items;
-                items.Sort("[Start]");
-                items.IncludeRecurrences = true;
-
-                DateTime start, end;
-                if (filter == "tomorrow")
-                {
-                    start = DateTime.Today.AddDays(1);
-                    end = DateTime.Today.AddDays(2);
-                }
-                else if (filter == "week")
-                {
-                    start = DateTime.Today;
-                    end = DateTime.Today.AddDays(7);
-                }
-                else
-                {
-                    start = DateTime.Today;
-                    end = DateTime.Today.AddDays(1);
-                }
-
-                string filterString = $"[Start] >= '{start:g}' AND [Start] < '{end:g}'";
-                restrictedItems = items.Restrict(filterString);
-
-                foreach (object item in restrictedItems)
-                {
-                    try
-                    {
-                        if (item is Outlook.AppointmentItem appt)
-                        {
-                            results.Add($"[{appt.Start:t} - {appt.End:t}] {appt.Subject} @ {appt.Location}");
-                        }
-                    }
-                    finally
-                    {
-                        Marshal.ReleaseComObject(item);
-                    }
-                }
-
-                Log("INFO", $"GetCalendar: found {results.Count} appointments for filter '{filter}'");
-            }
-            catch (Exception ex)
-            {
-                results.Add($"Calendar error: {ex.Message}");
-                Log("ERROR", $"GetCalendar error: {ex.Message}");
-            }
-            finally
-            {
-                if (restrictedItems != null) Marshal.ReleaseComObject(restrictedItems);
-                if (items != null) Marshal.ReleaseComObject(items);
-                if (calendar != null) Marshal.ReleaseComObject(calendar);
-                if (session != null) Marshal.ReleaseComObject(session);
-            }
-
-            if (results.Count == 0) results.Add("No appointments found.");
-            return results;
         }
 
         // --- LOGGING ---
