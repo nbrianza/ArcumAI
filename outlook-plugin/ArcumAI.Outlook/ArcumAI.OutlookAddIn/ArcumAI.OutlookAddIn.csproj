@@ -198,6 +198,7 @@
     <Compile Include="Core\Transport\WebSocketTransport.cs" />
     <Compile Include="Core\Loopback\AttachmentExtractor.cs" />
     <Compile Include="Core\Loopback\ContactManager.cs" />
+    <Compile Include="Core\Loopback\OutlookMailFactory.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
