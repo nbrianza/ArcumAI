@@ -21,6 +21,7 @@ namespace ArcumAI.OutlookAddIn
         private System.Timers.Timer _heartbeatTimer;
         private VirtualLoopbackHandler _loopbackHandler;
         private OutlookDataProvider _dataProvider;
+        private IPluginLogger _logger;
         private string _pendingIdentifyId;          // tracks the in-flight client/identify request
         private SynchronizationContext _syncContext; // captured on STA thread at startup
 
@@ -28,24 +29,25 @@ namespace ArcumAI.OutlookAddIn
         {
             // 1. Load Configuration
             _config = PluginConfig.Instance;
+            _logger = new PluginLogger(_config);
             _syncContext = SynchronizationContext.Current; // Outlook's STA thread context
 
             if (!_config.Validate(out string validationError))
             {
-                Log("WARNING", $"Invalid configuration: {validationError} - using default values");
+                _logger.Log("WARNING", $"Invalid configuration: {validationError} - using default values");
             }
 
-            Log("INFO", $"ArcumAI Plugin started | Server: {_config.ServerUrl} | User: {_config.UserId}");
+            _logger.Log("INFO", $"ArcumAI Plugin started | Server: {_config.ServerUrl} | User: {_config.UserId}");
 
             // Dump full configuration to log file
             try
             {
                 string cfgJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
-                Log("INFO", $"Effective configuration: {cfgJson}");
+                _logger.Log("INFO", $"Effective configuration: {cfgJson}");
             }
             catch (Exception ex)
             {
-                Log("WARNING", $"Unable to serialize configuration: {ex.Message}");
+                _logger.Log("WARNING", $"Unable to serialize configuration: {ex.Message}");
             }
 
             // 2. Setup Transport
@@ -59,14 +61,14 @@ namespace ArcumAI.OutlookAddIn
 
             // 4. Setup Virtual Loopback
             _loopbackHandler = new VirtualLoopbackHandler(
-                this.Application, _transport, _config, Log);
-            _dataProvider = new OutlookDataProvider(this.Application, _config, Log);
+                this.Application, _transport, _config, _logger.Log);
+            _dataProvider = new OutlookDataProvider(this.Application, _config, _logger.Log);
 
             if (_config.EnableVirtualLoopback)
             {
                 this.Application.ItemSend += Application_ItemSend;
                 _loopbackHandler.EnsureContactExists();
-                Log("INFO", $"Virtual Loopback enabled | Target: {_config.ArcumAIEmailAddress}");
+                _logger.Log("INFO", $"Virtual Loopback enabled | Target: {_config.ArcumAIEmailAddress}");
             }
 
             // 5. Hook Quit event (more reliable than Shutdown for VSTO)
@@ -79,19 +81,19 @@ namespace ArcumAI.OutlookAddIn
 
             try
             {
-                Log("INFO", $"Connecting to {_config.GetWebSocketUrl()} (attempt {_reconnectAttempt + 1})...");
+                _logger.Log("INFO", $"Connecting to {_config.GetWebSocketUrl()} (attempt {_reconnectAttempt + 1})...");
 
                 await _transport.ConnectAsync(_config.ServerUrl, _config.UserId);
 
                 _reconnectAttempt = 0;
-                Log("INFO", "Connected successfully");
+                _logger.Log("INFO", "Connected successfully");
 
                 await SendIdentify();
                 StartHeartbeat();
             }
             catch (Exception ex)
             {
-                Log("ERROR", $"Connection failed: {ex.Message}");
+                _logger.Log("ERROR", $"Connection failed: {ex.Message}");
                 ScheduleReconnect();
             }
         }
@@ -102,14 +104,14 @@ namespace ArcumAI.OutlookAddIn
 
             if (_config.MaxReconnectAttempts != -1 && _reconnectAttempt >= _config.MaxReconnectAttempts)
             {
-                Log("ERROR", $"Reached maximum reconnection limit ({_config.MaxReconnectAttempts}). Stopping attempts.");
+                _logger.Log("ERROR", $"Reached maximum reconnection limit ({_config.MaxReconnectAttempts}). Stopping attempts.");
                 return;
             }
 
             _reconnectAttempt++;
             int delay = _config.ReconnectDelayMs;
 
-            Log("WARNING", $"Reconnecting in {delay}ms (attempt {_reconnectAttempt}/{(_config.MaxReconnectAttempts == -1 ? "∞" : _config.MaxReconnectAttempts.ToString())})...");
+            _logger.Log("WARNING", $"Reconnecting in {delay}ms (attempt {_reconnectAttempt}/{(_config.MaxReconnectAttempts == -1 ? "∞" : _config.MaxReconnectAttempts.ToString())})...");
 
             await Task.Delay(delay);
             ConnectToArcum();
@@ -129,11 +131,11 @@ namespace ArcumAI.OutlookAddIn
                     try
                     {
                         await _transport.SendAsync("{\"method\":\"heartbeat\"}");
-                        Log("DEBUG", "Heartbeat sent");
+                        _logger.Log("DEBUG", "Heartbeat sent");
                     }
                     catch (Exception ex)
                     {
-                        Log("WARNING", $"Heartbeat failed: {ex.Message}");
+                        _logger.Log("WARNING", $"Heartbeat failed: {ex.Message}");
                         StopHeartbeat();
                         ScheduleReconnect();
                     }
@@ -175,11 +177,11 @@ namespace ArcumAI.OutlookAddIn
                     }
                 };
                 await _transport.SendAsync(msg.ToString(Formatting.None));
-                Log("INFO", "Sent client/identify to server");
+                _logger.Log("INFO", "Sent client/identify to server");
             }
             catch (Exception ex)
             {
-                Log("WARNING", $"Failed to send client/identify: {ex.Message}");
+                _logger.Log("WARNING", $"Failed to send client/identify: {ex.Message}");
                 _pendingIdentifyId = null;
             }
         }
@@ -188,12 +190,12 @@ namespace ArcumAI.OutlookAddIn
         {
             if (cfg == null)
             {
-                Log("DEBUG", "Config sync: empty config received — using all defaults");
+                _logger.Log("DEBUG", "Config sync: empty config received — using all defaults");
                 return;
             }
 
             // Dump the raw received config for diagnostics
-            Log("INFO", $"Config sync received from server:{Environment.NewLine}{cfg.ToString(Formatting.Indented)}");
+            _logger.Log("INFO", $"Config sync received from server:{Environment.NewLine}{cfg.ToString(Formatting.Indented)}");
 
             // Update _config properties — safe from any thread (simple value/reference writes)
             int applied = 0;
@@ -207,7 +209,7 @@ namespace ArcumAI.OutlookAddIn
             if (cfg["show_processing_notification"] != null) { _config.ShowProcessingNotification = cfg.Value<bool>("show_processing_notification"); applied++; }
 
             int total = 8;
-            Log(applied == total ? "INFO" : "WARNING",
+            _logger.Log(applied == total ? "INFO" : "WARNING",
                 $"Config sync applied: {applied}/{total} keys — " +
                 $"MaxAttachment={_config.MaxAttachmentSizeMB}MB, " +
                 $"Email={_config.ArcumAIEmailAddress}, " +
@@ -240,7 +242,7 @@ namespace ArcumAI.OutlookAddIn
         {
             if (_isShuttingDown) return;
 
-            Log("WARNING", "Connection lost from server");
+            _logger.Log("WARNING", "Connection lost from server");
             StopHeartbeat();
             _loopbackHandler?.NotifyPendingOnDisconnect();   // toast only, no error emails
             ScheduleReconnect();
@@ -265,14 +267,14 @@ namespace ArcumAI.OutlookAddIn
                 if (_loopbackHandler.ShouldIntercept(mail))
                 {
                     // ArcumAI is the ONLY recipient: full intercept
-                    Log("INFO", $"VirtualLoopback: Intercepting email to ArcumAI: '{mail.Subject}'");
+                    _logger.Log("INFO", $"VirtualLoopback: Intercepting email to ArcumAI: '{mail.Subject}'");
                     Cancel = true;
                     _ = _loopbackHandler.ProcessInterceptedEmail(mail);
                 }
                 else if (_loopbackHandler.ShouldProcessInParallel(mail))
                 {
                     // ArcumAI + real recipients: send normally but also process via AI
-                    Log("INFO", $"VirtualLoopback: Parallel processing (CC to ArcumAI): '{mail.Subject}'");
+                    _logger.Log("INFO", $"VirtualLoopback: Parallel processing (CC to ArcumAI): '{mail.Subject}'");
                     _loopbackHandler.RemoveArcumRecipient(mail);
                     _ = _loopbackHandler.ProcessInterceptedEmail(mail);
                     // Cancel stays false: email is sent to real recipients
@@ -280,7 +282,7 @@ namespace ArcumAI.OutlookAddIn
             }
             catch (Exception ex)
             {
-                Log("ERROR", $"VirtualLoopback: ItemSend handler error: {ex}");
+                _logger.Log("ERROR", $"VirtualLoopback: ItemSend handler error: {ex}");
                 // Do NOT cancel on error: let the email send normally
                 Cancel = false;
             }
@@ -298,7 +300,7 @@ namespace ArcumAI.OutlookAddIn
                 try { this.Application.ItemSend -= Application_ItemSend; } catch { }
             }
 
-            Log("INFO", "Outlook closing, disconnecting...");
+            _logger.Log("INFO", "Outlook closing, disconnecting...");
 
             if (_transport != null && _transport.IsConnected)
             {
@@ -310,7 +312,7 @@ namespace ArcumAI.OutlookAddIn
         {
             try
             {
-                Log("DEBUG", $"RX: {json}");
+                _logger.Log("DEBUG", $"RX: {json}");
 
                 JObject request = JObject.Parse(json);
                 string method = (string)request["method"];
@@ -319,7 +321,7 @@ namespace ArcumAI.OutlookAddIn
                 // Handle virtual_loopback/response (push notification, no id)
                 if (method == "virtual_loopback/response")
                 {
-                    Log("INFO", "VirtualLoopback: Received AI response from server");
+                    _logger.Log("INFO", "VirtualLoopback: Received AI response from server");
                     _loopbackHandler.HandleServerResponse(request["params"] as JObject);
                     return;
                 }
@@ -347,7 +349,7 @@ namespace ArcumAI.OutlookAddIn
                     string toolName = (string)request["params"]["name"];
                     JToken args = request["params"]["arguments"];
 
-                    Log("INFO", $"Executing tool: {toolName}");
+                    _logger.Log("INFO", $"Executing tool: {toolName}");
 
                     if (toolName == "search_emails")
                     {
@@ -362,7 +364,7 @@ namespace ArcumAI.OutlookAddIn
                     else
                     {
                         errorMsg = $"Unknown tool '{toolName}'.";
-                        Log("WARNING", errorMsg);
+                        _logger.Log("WARNING", errorMsg);
                     }
                 }
                 var response = new JObject
@@ -381,56 +383,13 @@ namespace ArcumAI.OutlookAddIn
                 }
 
                 string responseJson = response.ToString(Formatting.None);
-                Log("DEBUG", $"TX: {responseJson}");
+                _logger.Log("DEBUG", $"TX: {responseJson}");
                 await _transport.SendAsync(responseJson);
             }
             catch (Exception ex)
             {
-                Log("ERROR", $"Error handling message: {ex}");
+                _logger.Log("ERROR", $"Error handling message: {ex}");
             }
-        }
-
-        // --- LOGGING ---
-
-        private const long MAX_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
-
-        private void Log(string level, string message)
-        {
-            if (!_config.EnableLogging) return;
-
-            string[] levels = { "DEBUG", "INFO", "WARNING", "ERROR" };
-            int configLevel = Array.IndexOf(levels, _config.LogLevel.ToUpper());
-            int msgLevel = Array.IndexOf(levels, level);
-            if (msgLevel < configLevel) return;
-
-            try
-            {
-                string logPath = _config.LogFilePath;
-                string directory = Path.GetDirectoryName(logPath);
-                if (!Directory.Exists(directory))
-                    Directory.CreateDirectory(directory);
-
-                // Log rotation: if file exceeds MAX_LOG_SIZE, rotate
-                if (File.Exists(logPath))
-                {
-                    var info = new FileInfo(logPath);
-                    if (info.Length > MAX_LOG_SIZE)
-                    {
-                        string oldPath = logPath + ".old";
-                        if (File.Exists(oldPath)) File.Delete(oldPath);
-                        File.Move(logPath, oldPath);
-                    }
-                }
-
-                string entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}";
-                File.AppendAllText(logPath, entry);
-            }
-            catch
-            {
-                // Silent fallback to avoid blocking Outlook
-            }
-
-            System.Diagnostics.Debug.WriteLine($"[ArcumAI {level}] {message}");
         }
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
