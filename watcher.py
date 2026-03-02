@@ -158,11 +158,11 @@ def run_watcher():
 
                     if count > 0:
                         try:
-                            log.info(f"⚙️  Launching main.py for {count} new files...")
-                            subprocess.run([sys.executable, "main.py"], check=True)
+                            log.info(f"⚙️  Launching ingest.py for {count} new files...")
+                            subprocess.run([sys.executable, "ingest.py"], check=True)
                             log.info("✅ Cycle completed. Back on watch.")
                         except subprocess.CalledProcessError:
-                            log.error("❌ ERROR: main.py returned an error.")
+                            log.error("❌ ERROR: ingest.py returned an error.")
                         except Exception as e:
                             log.error(f"❌ CRITICAL ERROR: {e}")
                     else:
