@@ -1,9 +1,6 @@
-import re
-import time
 import traceback
 import nest_asyncio
 from pathlib import Path
-from collections import defaultdict
 from urllib.parse import quote
 from nicegui import ui, run  # <--- ADDED 'run'
 
@@ -11,36 +8,7 @@ from src.readers import SmartPDFReader
 from src.utils import find_relative_path
 from src.config import ARCHIVE_DIR
 from src.logger import server_log as slog
-
-MAX_INPUT_LENGTH = 4000
-RATE_LIMIT_MESSAGES = 20   # max messages per window
-RATE_LIMIT_WINDOW = 60     # window in seconds
-# Control characters except \n \r \t
-_CONTROL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
-
-# Per-user rate limiter (in-memory)
-_user_timestamps: dict[str, list[float]] = defaultdict(list)
-
-
-def _check_rate_limit(username: str) -> bool:
-    """Returns True if the user can send, False if they exceeded the limit."""
-    now = time.time()
-    timestamps = _user_timestamps[username]
-    # Purge expired entries
-    _user_timestamps[username] = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
-    if len(_user_timestamps[username]) >= RATE_LIMIT_MESSAGES:
-        return False
-    _user_timestamps[username].append(now)
-    return True
-
-
-def sanitize_input(text: str) -> str:
-    """Sanitizes user input: removes control characters, limits length."""
-    text = _CONTROL_CHARS.sub('', text)
-    text = text.strip()
-    if len(text) > MAX_INPUT_LENGTH:
-        text = text[:MAX_INPUT_LENGTH]
-    return text
+from src.ui.rate_limiter import _check_rate_limit, sanitize_input
 
 def create_footer(session, user_data, chat_container, mode_display):
 
