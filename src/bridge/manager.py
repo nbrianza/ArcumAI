@@ -1,40 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import glob
 import json
 import os
 import uuid
 import base64
 import tempfile
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any
 from fastapi import WebSocket
 
 # Using the server_log defined in src/logger.py
 from src.logger import server_log as log
+from src.bridge.pending_results import PendingResultStore
+from src.bridge.loopback_queue import _EmailTask, _UserQueue
 
 BRIDGE_TIMEOUT = float(os.getenv("BRIDGE_TIMEOUT", "60.0"))
 LOOPBACK_TIMEOUT = float(os.getenv("LOOPBACK_TIMEOUT", "3600.0"))
-
-
-@dataclass(order=True)
-class _EmailTask:
-    priority:   int          # 0=High, 1=Normal, 2=Low (lower = processed first)
-    sequence:   int          # FIFO tiebreaker for equal priority
-    user_id:    str  = field(compare=False)
-    request_id: str  = field(compare=False)
-    params:     dict = field(compare=False)
-
-
-class _UserQueue:
-    def __init__(self, user_id: str):
-        self.user_id     = user_id
-        self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
-        self.sequence: int = 0
-        self.worker_task: asyncio.Task | None = None
 
 
 class OutlookBridgeManager:
@@ -57,6 +39,7 @@ class OutlookBridgeManager:
 
         # Directory for storing results when client is offline
         self._temp_dir = Path(PENDING_RESULTS_DIR)
+        self._pending = PendingResultStore(self._temp_dir)
 
     async def connect(self, websocket: WebSocket, user_id: str):
         await websocket.accept()
@@ -176,7 +159,7 @@ class OutlookBridgeManager:
                 else:
                     log.warning(f"Bridge: '{user_id}' identified as unknown client_type '{client_type}' — no config pushed")
                 # Deliver any results that completed while the client was offline
-                asyncio.create_task(self._deliver_pending_results(user_id))
+                asyncio.create_task(self._pending.deliver(user_id, self.active_connections))
                 return
 
             # Virtual Loopback: email sent to ArcumAI by the plugin
@@ -330,7 +313,7 @@ class OutlookBridgeManager:
                                                    "params": response_params}))
                     log.info(f"VirtualLoopback [{user_id}]: Sent size-limit error response for '{subject}'")
                 else:
-                    await self._save_pending_result(user_id, request_id, conversation_id, response_params)
+                    await self._pending.save(user_id, request_id, conversation_id, response_params)
                 return
 
             # Route to AI engine (body and attachment_context are kept separate)
@@ -362,7 +345,7 @@ class OutlookBridgeManager:
                                                "params": response_params}))
                 log.info(f"VirtualLoopback [{user_id}]: Response delivered via WebSocket for '{subject}'")
             else:
-                await self._save_pending_result(user_id, request_id, conversation_id, response_params)
+                await self._pending.save(user_id, request_id, conversation_id, response_params)
                 log.info(f"VirtualLoopback [{user_id}]: Client offline — result stored for '{subject}'")
 
         except Exception as e:
@@ -386,7 +369,7 @@ class OutlookBridgeManager:
                 except Exception:
                     log.error(f"VirtualLoopback [{user_id}]: Failed to send error response")
             else:
-                await self._save_pending_result(user_id, request_id, conversation_id, error_params)
+                await self._pending.save(user_id, request_id, conversation_id, error_params)
 
     # ------------------------------------------------------------------
     #  QUEUE MANAGEMENT
@@ -400,7 +383,7 @@ class OutlookBridgeManager:
         # (user resent the email thinking it was lost), deliver immediately.
         # Guard: only check when conv_id is non-empty — an empty string would
         # false-positive against any other pending result that also has no conv_id (Bug 3 fix).
-        cached = self._find_pending_result(user_id, conv_id) if conv_id else None
+        cached = self._pending.find(user_id, conv_id) if conv_id else None
         if cached:
             log.info(f"Queue[{user_id}]: duplicate request conv_id={conv_id[:16]}... — delivering cached result")
             ws = self.active_connections.get(user_id)
@@ -408,7 +391,7 @@ class OutlookBridgeManager:
                 push = {"jsonrpc": "2.0", "method": "virtual_loopback/response",
                         "params": cached["response"]}
                 await ws.send_text(json.dumps(push))
-                self._delete_pending_result(user_id, conv_id)
+                self._pending.delete(user_id, conv_id)
             return
 
         # Map Outlook importance to queue priority: High(2)→0, Normal(1)→1, Low(0)→2
@@ -452,120 +435,6 @@ class OutlookBridgeManager:
             except Exception as e:
                 log.error(f"Queue[{user_id}]: worker error: {e}", exc_info=True)
                 # Never kill the worker — keep processing next items
-
-    # ------------------------------------------------------------------
-    #  TEMP FILE HELPERS (offline result storage)
-    # ------------------------------------------------------------------
-
-    async def _save_pending_result(self, user_id: str, request_id: str,
-                                   conversation_id: str, response: dict):
-        """Store a completed result to disk for delivery on next reconnect."""
-        try:
-            self._temp_dir.mkdir(parents=True, exist_ok=True)
-            path = self._temp_dir / f"arcumai_pending_{user_id}_{request_id}.json"
-            payload = {
-                "user_id":         user_id,
-                "request_id":      request_id,
-                "conversation_id": conversation_id,
-                "created_at":      datetime.now(timezone.utc).isoformat(),
-                "response":        response,
-            }
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-            log.info(f"Pending result saved for '{user_id}': {path.name}")
-        except Exception as e:
-            log.error(f"Failed to save pending result for '{user_id}': {e}")
-
-    def _find_pending_result(self, user_id: str, conversation_id: str) -> dict | None:
-        """Look up a cached result by user + conversation_id."""
-        pattern = str(self._temp_dir / f"arcumai_pending_{user_id}_*.json")
-        for p in glob.glob(pattern):
-            try:
-                data = json.loads(Path(p).read_text())
-                if data.get("conversation_id") == conversation_id:
-                    return data
-            except Exception:
-                pass
-        return None
-
-    def _delete_pending_result(self, user_id: str, conversation_id: str):
-        """Delete a temp file after it has been delivered."""
-        pattern = str(self._temp_dir / f"arcumai_pending_{user_id}_*.json")
-        for p in glob.glob(pattern):
-            try:
-                data = json.loads(Path(p).read_text())
-                if data.get("conversation_id") == conversation_id:
-                    Path(p).unlink()
-            except Exception:
-                pass
-
-    async def _deliver_pending_results(self, user_id: str):
-        """Called after a client reconnects and completes the identify handshake.
-        Delivers stored results in order, skipping those older than the TTL.
-
-        Race-condition safety (Issue 5): before each await, the .json file is atomically
-        renamed to .delivering so _enqueue_email's dedup scan (which only globs *.json)
-        cannot find it and deliver it a second time.
-
-        Stale-ws safety (Issue 8): ws is re-fetched on every iteration, so a disconnect
-        mid-loop is detected immediately and remaining files are left on disk for next reconnect.
-        """
-        from src.config import PENDING_RESULT_TTL_HOURS
-
-        # Recover any .delivering files left by a previous interrupted delivery
-        # (e.g. server crashed between rename and unlink).
-        for p in glob.glob(str(self._temp_dir / f"arcumai_pending_{user_id}_*.delivering")):
-            try:
-                Path(p).rename(Path(p).with_suffix(".json"))
-            except Exception:
-                pass
-
-        pattern = str(self._temp_dir / f"arcumai_pending_{user_id}_*.json")
-        files = sorted(glob.glob(pattern))
-        if not files:
-            return
-
-        delivered = expired = 0
-        for p in files:
-            try:
-                data = json.loads(Path(p).read_text())
-                age_h = (datetime.now(timezone.utc) -
-                         datetime.fromisoformat(data["created_at"])).total_seconds() / 3600
-                if age_h > PENDING_RESULT_TTL_HOURS:
-                    Path(p).unlink()
-                    expired += 1
-                    log.warning(f"Pending result expired ({age_h:.1f}h > {PENDING_RESULT_TTL_HOURS}h): {Path(p).name}")
-                    continue
-
-                # Atomically claim the file before awaiting to prevent race with _enqueue_email
-                delivering_path = Path(p).with_suffix(".delivering")
-                try:
-                    Path(p).rename(delivering_path)
-                except (FileNotFoundError, OSError):
-                    continue  # already claimed or deleted by another coroutine
-
-                # Re-fetch ws on every iteration (Issue 8: avoid stale reference after await)
-                ws = self.active_connections.get(user_id)
-                if ws:
-                    push = {"jsonrpc": "2.0", "method": "virtual_loopback/response",
-                            "params": data["response"]}
-                    await ws.send_text(json.dumps(push))
-                    try:
-                        delivering_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    delivered += 1
-                else:
-                    # Client disconnected mid-delivery: rename back for next reconnect attempt
-                    try:
-                        delivering_path.rename(Path(p))
-                    except Exception:
-                        pass
-                    log.info(f"Pending delivery for '{user_id}' paused: client disconnected")
-                    break
-            except Exception as e:
-                log.error(f"Failed to deliver pending result {p}: {e}")
-        if delivered or expired:
-            log.info(f"Pending results for '{user_id}': {delivered} delivered, {expired} expired/deleted")
 
     def _process_attachment(self, att_data: dict) -> str:
         """Decode base64 attachment and extract text content."""

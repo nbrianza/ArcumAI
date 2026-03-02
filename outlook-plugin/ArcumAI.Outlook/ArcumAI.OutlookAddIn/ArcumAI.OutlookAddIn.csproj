@@ -196,6 +196,8 @@
     <Compile Include="Core\PluginConfig.cs" />
     <Compile Include="Core\VirtualLoopbackHandler.cs" />
     <Compile Include="Core\Transport\WebSocketTransport.cs" />
+    <Compile Include="Core\Loopback\AttachmentExtractor.cs" />
+    <Compile Include="Core\Loopback\ContactManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
