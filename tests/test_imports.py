@@ -65,3 +65,16 @@ def test_pending_results_module():
 def test_loopback_queue_module():
     from src.bridge import loopback_queue
     from src.bridge.loopback_queue import _EmailTask, _UserQueue
+
+
+# --- Phase 3 additions ---
+
+def test_loopback_processor_module():
+    from src.bridge import loopback_processor
+    from src.bridge.loopback_processor import LoopbackProcessor
+
+
+def test_ai_session_module():
+    from src.ai import session
+    from src.ai.session import UserSession
+    from src.engine import UserSession as US2  # backward compat re-export
