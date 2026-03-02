@@ -199,7 +199,7 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
     # Step 1: Mask PII if enabled
     if ENABLE_NER_MASKING:
         try:
-            from src.ner_masking import mask_pii, is_presidio_available
+            from src.ai.ner_masking import mask_pii, is_presidio_available
 
             if not is_presidio_available():
                 slog.warning("PromptOptimization: Presidio not available, sending unmasked to Gemini (PRIVACY RISK)")
@@ -260,7 +260,7 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
         # Step 3: Restore PII if we masked it
         if ENABLE_NER_MASKING and anonymization_metadata:
             try:
-                from src.ner_masking import unmask_pii
+                from src.ai.ner_masking import unmask_pii
                 optimized = unmask_pii(masked_optimized, anonymization_metadata)
                 slog.debug("PromptOptimization: PII restored after Gemini")
                 return optimized

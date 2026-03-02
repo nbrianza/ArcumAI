@@ -192,10 +192,10 @@
     can be found.
   -->
   <ItemGroup>
-    <Compile Include="Core\IMcpTransport.cs" />
+    <Compile Include="Core\Transport\IMcpTransport.cs" />
     <Compile Include="Core\PluginConfig.cs" />
     <Compile Include="Core\VirtualLoopbackHandler.cs" />
-    <Compile Include="Core\WebSocketTransport.cs" />
+    <Compile Include="Core\Transport\WebSocketTransport.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
