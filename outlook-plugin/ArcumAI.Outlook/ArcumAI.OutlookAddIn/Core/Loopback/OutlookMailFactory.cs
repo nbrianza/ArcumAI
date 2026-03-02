@@ -4,7 +4,7 @@ using System.Threading;
 using Outlook = Microsoft.Office.Interop.Outlook;
 using Newtonsoft.Json.Linq;
 
-namespace ArcumAI.OutlookAddIn.Core
+namespace ArcumAI.OutlookAddIn.Core.Loopback
 {
     /// <summary>
     /// Creates and manipulates Outlook mail items for the Virtual Loopback feature.

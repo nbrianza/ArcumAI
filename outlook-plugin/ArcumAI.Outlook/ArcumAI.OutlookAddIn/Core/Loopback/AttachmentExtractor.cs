@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 using Outlook = Microsoft.Office.Interop.Outlook;
 using Newtonsoft.Json.Linq;
 
-namespace ArcumAI.OutlookAddIn.Core
+namespace ArcumAI.OutlookAddIn.Core.Loopback
 {
     /// <summary>
     /// Extracts and encodes attachments from Outlook mail items.

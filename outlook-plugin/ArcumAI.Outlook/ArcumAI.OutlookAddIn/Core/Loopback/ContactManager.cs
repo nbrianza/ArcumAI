@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using Outlook = Microsoft.Office.Interop.Outlook;
 
-namespace ArcumAI.OutlookAddIn.Core
+namespace ArcumAI.OutlookAddIn.Core.Loopback
 {
     /// <summary>
     /// Manages the ArcumAI Outlook contact entry.

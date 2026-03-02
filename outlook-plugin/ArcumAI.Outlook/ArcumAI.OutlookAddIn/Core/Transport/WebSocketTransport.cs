@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace ArcumAI.OutlookAddIn.Core
+namespace ArcumAI.OutlookAddIn.Core.Transport
 {
     public class WebSocketTransport : IMcpTransport
     {

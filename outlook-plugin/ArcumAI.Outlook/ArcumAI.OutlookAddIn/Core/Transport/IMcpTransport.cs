@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace ArcumAI.OutlookAddIn.Core
+namespace ArcumAI.OutlookAddIn.Core.Transport
 {
     public interface IMcpTransport
     {

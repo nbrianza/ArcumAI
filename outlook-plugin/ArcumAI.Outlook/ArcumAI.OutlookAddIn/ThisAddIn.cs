@@ -8,6 +8,7 @@ using Outlook = Microsoft.Office.Interop.Outlook;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using ArcumAI.OutlookAddIn.Core;
+using ArcumAI.OutlookAddIn.Core.Transport;
 
 namespace ArcumAI.OutlookAddIn
 {
