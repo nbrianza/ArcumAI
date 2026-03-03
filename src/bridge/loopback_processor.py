@@ -140,8 +140,8 @@ class LoopbackProcessor:
                 "subject": subject,
                 "conversation_id": conversation_id,
                 "original_message_id": original_message_id,
-                "response_text": f"An error occurred during processing: {str(e)}",
-                "response_html": f"<p style='color:red'>Error: {str(e)}</p>",
+                "response_text": "An error occurred while processing your request. Please try again.",
+                "response_html": "<p style='color:red'>Error: unable to process your request. Please try again.</p>",
             }
             ws = self.active_connections.get(user_id)
             if ws:
@@ -162,13 +162,20 @@ class LoopbackProcessor:
         if not content_b64:
             return f"[Empty attachment: {file_name}]"
 
+        # Guard: reject oversized base64 before allocating decoded bytes in memory
+        from src.config import VSTO_MAX_ATTACHMENT_MB
+        max_encoded_len = int(VSTO_MAX_ATTACHMENT_MB * 1024 * 1024 * 1.34)
+        if len(content_b64) > max_encoded_len:
+            log.warning(f"VirtualLoopback: attachment '{file_name}' exceeds size guard ({VSTO_MAX_ATTACHMENT_MB} MB), skipping decode")
+            return f"[Attachment too large to process server-side: {file_name}]"
+
         file_bytes = base64.b64decode(content_b64)
         ext = Path(file_name).suffix.lower()
 
         # Save to temporary file for processing
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False, prefix="arcumai_lb_") as tmp:
+            tmp_path = Path(tmp.name)  # assign before write so finally cleanup always works
             tmp.write(file_bytes)
-            tmp_path = Path(tmp.name)
 
         try:
             if ext == ".pdf":

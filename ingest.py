@@ -84,7 +84,7 @@ def read_and_chunk_file(file_path):
         # DETAILED READ LOG
         try:
             rel_path = file_path.relative_to(INBOX_DIR)
-        except:
+        except ValueError:
             rel_path = file_path.name
 
         log.info(f"   📖 READ: {rel_path} | Extension: {ext} | Elements: {len(docs)}")

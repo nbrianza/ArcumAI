@@ -173,12 +173,12 @@ class MyEmlReader:
             body = msg.get_body(preferencelist=('plain', 'html'))
             if body:
                 try: body_text = body.get_content()
-                except: body_text = str(body)
+                except Exception: body_text = str(body)
             else:
                 for part in msg.walk():
                     if part.get_content_type() == "text/plain":
                         try: body_text += part.get_content()
-                        except: pass
+                        except Exception: pass
 
             full_text = f"Subject: {metadata['soggetto']}\n" \
                         f"From: {metadata['mittente']}\n" \

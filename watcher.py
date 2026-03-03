@@ -9,6 +9,7 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+_INGEST_SCRIPT = Path(__file__).parent / "ingest.py"
 
 # --- PROJECT MODULE IMPORTS ---
 from src.logger import log
@@ -159,7 +160,7 @@ def run_watcher():
                     if count > 0:
                         try:
                             log.info(f"⚙️  Launching ingest.py for {count} new files...")
-                            subprocess.run([sys.executable, "ingest.py"], check=True)
+                            subprocess.run([sys.executable, str(_INGEST_SCRIPT)], check=True)
                             log.info("✅ Cycle completed. Back on watch.")
                         except subprocess.CalledProcessError:
                             log.error("❌ ERROR: ingest.py returned an error.")

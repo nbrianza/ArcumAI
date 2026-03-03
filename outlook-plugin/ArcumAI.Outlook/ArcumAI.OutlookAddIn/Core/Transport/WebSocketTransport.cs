@@ -10,9 +10,17 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
     {
         private ClientWebSocket _ws;
         private CancellationTokenSource _cts;
+        private int _disconnectedFired; // 0 = not yet fired; use Interlocked to guard
 
         public event EventHandler<string> MessageReceived;
         public event EventHandler Disconnected;
+
+        // Fires Disconnected exactly once per connection lifetime.
+        private void FireDisconnected()
+        {
+            if (Interlocked.CompareExchange(ref _disconnectedFired, 1, 0) == 0)
+                Disconnected?.Invoke(this, EventArgs.Empty);
+        }
 
         public bool IsConnected => _ws != null && _ws.State == WebSocketState.Open;
 
@@ -28,6 +36,7 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
 
             _ws = new ClientWebSocket();
             _cts = new CancellationTokenSource();
+            Interlocked.Exchange(ref _disconnectedFired, 0); // reset for new connection
 
             // Build the URL: ws://localhost:8080/ws/outlook/username
             var uriString = $"{baseUri.TrimEnd('/')}/ws/outlook/{userId}";
@@ -66,7 +75,7 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             catch (Exception)
             {
                 // Connection lost during send
-                Disconnected?.Invoke(this, EventArgs.Empty);
+                FireDisconnected();
             }
         }
 
@@ -98,6 +107,8 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             {
                 while (IsConnected && !_cts.IsCancellationRequested)
                 {
+                    // No per-receive timeout: the heartbeat (SendAsync failure) detects dead connections.
+                    // A timeout here would false-fire during long AI processing (up to 1 hour).
                     var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
 
                     if (result.MessageType == WebSocketMessageType.Close)
@@ -140,8 +151,10 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
                 System.Diagnostics.Debug.WriteLine($"Receive loop error: {ex.Message}");
             }
 
-            // Notify disconnection to trigger automatic reconnection
-            Disconnected?.Invoke(this, EventArgs.Empty);
+            // Notify disconnection to trigger automatic reconnection.
+            // Skip if exit was caused by voluntary cancellation (e.g. ConnectAsync disposed us for reconnect).
+            if (!_cts.IsCancellationRequested)
+                FireDisconnected();
         }
     }
 }

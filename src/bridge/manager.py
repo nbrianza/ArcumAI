@@ -101,12 +101,10 @@ class OutlookBridgeManager:
             # 4. Send to WebSocket
             ws = self.active_connections[user_id]
 
-            # --- TX LOGGING ---
             json_str = json.dumps(payload)
             await ws.send_text(json_str)
-            # Log at INFO level to see it in server.log with full JSON
-            log.info(f"📤 MCP TX [{user_id}]: {json_str}")
-            # ---------------------------
+            log.debug(f"📤 MCP TX [{user_id}]: {json_str}")
+            log.info(f"📤 MCP TX [{user_id}]: method={payload.get('method')} ({len(json_str)} bytes)")
 
             # 5. Wait for the response
             result = await asyncio.wait_for(future, timeout=BRIDGE_TIMEOUT)

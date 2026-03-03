@@ -138,7 +138,7 @@ namespace ArcumAI.OutlookAddIn.Core
             }
 
             string[] validLogLevels = { "DEBUG", "INFO", "WARNING", "ERROR" };
-            if (Array.IndexOf(validLogLevels, LogLevel.ToUpper()) == -1)
+            if (Array.IndexOf(validLogLevels, (LogLevel ?? "").ToUpper()) == -1)
             {
                 errorMessage = "LogLevel must be DEBUG, INFO, WARNING, or ERROR";
                 return false;

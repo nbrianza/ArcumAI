@@ -41,8 +41,10 @@ class PendingResultStore:
                 data = json.loads(Path(p).read_text())
                 if data.get("conversation_id") == conversation_id:
                     return data
-            except Exception:
+            except FileNotFoundError:
                 pass
+            except Exception as e:
+                log.warning(f"Unexpected error reading pending result {p}: {e}")
         return None
 
     def delete(self, user_id: str, conversation_id: str):
@@ -53,8 +55,10 @@ class PendingResultStore:
                 data = json.loads(Path(p).read_text())
                 if data.get("conversation_id") == conversation_id:
                     Path(p).unlink()
-            except Exception:
+            except FileNotFoundError:
                 pass
+            except Exception as e:
+                log.warning(f"Unexpected error deleting pending result {p}: {e}")
 
     async def deliver(self, user_id: str, active_connections: dict):
         """Called after a client reconnects and completes the identify handshake.
@@ -106,12 +110,17 @@ class PendingResultStore:
                 if ws:
                     push = {"jsonrpc": "2.0", "method": "virtual_loopback/response",
                             "params": data["response"]}
-                    await ws.send_text(json.dumps(push))
                     try:
-                        delivering_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    delivered += 1
+                        await ws.send_text(json.dumps(push))
+                        delivering_path.unlink(missing_ok=True)
+                        delivered += 1
+                    except Exception as send_err:
+                        log.warning(f"Pending delivery send failed for '{user_id}': {send_err} — will retry on next reconnect")
+                        try:
+                            delivering_path.rename(Path(p))
+                        except Exception:
+                            pass
+                        break
                 else:
                     # Client disconnected mid-delivery: rename back for next reconnect attempt
                     try:

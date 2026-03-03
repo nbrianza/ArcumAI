@@ -1,3 +1,4 @@
+import asyncio
 from nicegui import run
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core import Settings
@@ -186,12 +187,12 @@ class UserSession:
 
         try:
             prompt = (f"Classify intent: '{text}'. Reply 'RAG' (documents), 'AGENT' (email/calendar), or 'SIMPLE' (chat). One word.")
-            resp = await Settings.llm.acomplete(prompt)
+            resp = await asyncio.wait_for(Settings.llm.acomplete(prompt), timeout=10.0)
             decision = str(resp).strip().upper()
             if "RAG" in decision: return "RAG"
             if "AGENT" in decision: return "AGENT"
             return "SIMPLE"
-        except: return "RAG"
+        except Exception: return "RAG"
 
     def _format_history_as_text(self, limit=6):
         if not self.global_history: return ""

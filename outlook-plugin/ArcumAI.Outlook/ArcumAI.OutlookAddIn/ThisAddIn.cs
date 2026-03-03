@@ -24,6 +24,7 @@ namespace ArcumAI.OutlookAddIn
         private IPluginLogger _logger;
         private string _pendingIdentifyId;          // tracks the in-flight client/identify request
         private SynchronizationContext _syncContext; // captured on STA thread at startup
+        private readonly object _heartbeatLock = new object(); // guards _heartbeatTimer across threads
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
@@ -31,6 +32,14 @@ namespace ArcumAI.OutlookAddIn
             _config = PluginConfig.Instance;
             _logger = new PluginLogger(_config);
             _syncContext = SynchronizationContext.Current; // Outlook's STA thread context
+            if (_syncContext == null)
+            {
+                // VSTO does not install a SynchronizationContext on the Outlook STA thread.
+                // Install one so _syncContext.Post() defers COM cleanup correctly after ItemSend returns.
+                var ctx = new System.Windows.Forms.WindowsFormsSynchronizationContext();
+                SynchronizationContext.SetSynchronizationContext(ctx);
+                _syncContext = ctx;
+            }
 
             if (!_config.Validate(out string validationError))
             {
@@ -119,45 +128,61 @@ namespace ArcumAI.OutlookAddIn
 
         private void StartHeartbeat()
         {
-            StopHeartbeat();
-
-            if (_config.HeartbeatIntervalMs <= 0) return;
-
-            _heartbeatTimer = new System.Timers.Timer(_config.HeartbeatIntervalMs);
-            _heartbeatTimer.Elapsed += async (s, e) =>
+            System.Timers.Timer oldTimer;
+            lock (_heartbeatLock)
             {
-                if (_transport != null && _transport.IsConnected)
+                oldTimer = _heartbeatTimer;
+                _heartbeatTimer = null;
+
+                if (_config.HeartbeatIntervalMs > 0)
                 {
-                    try
+                    _heartbeatTimer = new System.Timers.Timer(_config.HeartbeatIntervalMs);
+                    _heartbeatTimer.Elapsed += (s, e) =>
                     {
-                        await _transport.SendAsync("{\"method\":\"heartbeat\"}");
-                        _logger.Log("DEBUG", "Heartbeat sent");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Log("WARNING", $"Heartbeat failed: {ex.Message}");
-                        StopHeartbeat();
-                        ScheduleReconnect();
-                    }
+                        _ = HeartbeatTickAsync().ContinueWith(
+                            t => _logger.Log("ERROR", $"Heartbeat unhandled exception: {t.Exception?.GetBaseException()?.Message}"),
+                            TaskContinuationOptions.OnlyOnFaulted);
+                    };
+                    _heartbeatTimer.AutoReset = true;
+                    _heartbeatTimer.Start();
                 }
-                else
+            }
+            // Dispose old timer outside the lock to avoid blocking other threads
+            if (oldTimer != null) { oldTimer.Stop(); oldTimer.Dispose(); }
+        }
+
+        private async Task HeartbeatTickAsync()
+        {
+            if (_transport != null && _transport.IsConnected)
+            {
+                try
                 {
+                    await _transport.SendAsync("{\"method\":\"heartbeat\"}");
+                    _logger.Log("DEBUG", "Heartbeat sent");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log("WARNING", $"Heartbeat failed: {ex.Message}");
                     StopHeartbeat();
                     ScheduleReconnect();
                 }
-            };
-            _heartbeatTimer.AutoReset = true;
-            _heartbeatTimer.Start();
+            }
+            else
+            {
+                StopHeartbeat();
+                ScheduleReconnect();
+            }
         }
 
         private void StopHeartbeat()
         {
-            if (_heartbeatTimer != null)
+            System.Timers.Timer t;
+            lock (_heartbeatLock)
             {
-                _heartbeatTimer.Stop();
-                _heartbeatTimer.Dispose();
+                t = _heartbeatTimer;
                 _heartbeatTimer = null;
             }
+            if (t != null) { t.Stop(); t.Dispose(); }
         }
 
         private async Task SendIdentify()
@@ -207,6 +232,10 @@ namespace ArcumAI.OutlookAddIn
             if (cfg["loopback_timeout_ms"] != null)          { _config.LoopbackTimeoutMs          = cfg.Value<int>("loopback_timeout_ms");       applied++; }
             if (cfg["enable_virtual_loopback"] != null)      { _config.EnableVirtualLoopback      = cfg.Value<bool>("enable_virtual_loopback");  applied++; }
             if (cfg["show_processing_notification"] != null) { _config.ShowProcessingNotification = cfg.Value<bool>("show_processing_notification"); applied++; }
+            Thread.MemoryBarrier(); // ensure all config writes are visible to the STA thread before it reads them
+
+            if (!_config.Validate(out string syncValidationError))
+                _logger.Log("WARNING", $"Config sync produced invalid configuration: {syncValidationError}");
 
             int total = 8;
             _logger.Log(applied == total ? "INFO" : "WARNING",
@@ -294,6 +323,13 @@ namespace ArcumAI.OutlookAddIn
             _isShuttingDown = true;
             StopHeartbeat();
 
+            // Unsubscribe transport events to prevent duplicate handlers on plugin reload
+            if (_transport != null)
+            {
+                _transport.MessageReceived -= OnMessageFromArcum;
+                _transport.Disconnected -= OnDisconnected;
+            }
+
             // Unhook ItemSend to prevent issues during shutdown
             if (_config.EnableVirtualLoopback)
             {
@@ -314,6 +350,7 @@ namespace ArcumAI.OutlookAddIn
             {
                 _logger.Log("DEBUG", $"RX: {json}");
 
+                if (string.IsNullOrWhiteSpace(json)) return;
                 JObject request = JObject.Parse(json);
                 string method = (string)request["method"];
                 string id = (string)request["id"];

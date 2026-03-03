@@ -97,16 +97,10 @@ WATCH_DEBOUNCE = 5
 USERS_FILE = BASE_DIR / "users.json"
 
 # --- 8. PROMPT OPTIMIZATION & PRIVACY ---
-# DEBUG: Print raw env var value
-_raw_prompt_opt = os.getenv("PROMPT_OPTIMIZATION")
-if _raw_prompt_opt:
-    print(f"[DEBUG] PROMPT_OPTIMIZATION from env: '{_raw_prompt_opt}' (len={len(_raw_prompt_opt)})")
-else:
-    print("[DEBUG] PROMPT_OPTIMIZATION not set in env, using default 'local'")
-
 PROMPT_OPTIMIZATION = os.getenv("PROMPT_OPTIMIZATION", "local")  # "local" | "gemini" | "off"
 ENABLE_NER_MASKING = os.getenv("ENABLE_NER_MASKING", "true").lower() == "true"
 NER_SCORE_THRESHOLD = float(os.getenv("NER_SCORE_THRESHOLD", "0.35"))  # Low threshold for privacy
+GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "60.0"))
 
 # --- 9. SERVER-PUSHED CLIENT CONFIG ---
 # Sent to clients during the client/identify handshake, keyed by client_type.
@@ -116,7 +110,7 @@ NER_SCORE_THRESHOLD = float(os.getenv("NER_SCORE_THRESHOLD", "0.35"))  # Low thr
 VSTO_MAX_ATTACHMENT_MB       = int(os.getenv("VSTO_MAX_ATTACHMENT_MB", "25"))
 VSTO_MAX_TOTAL_MB            = int(os.getenv("VSTO_MAX_TOTAL_MB", "50"))
 VSTO_MAX_PAYLOAD_MB          = int(os.getenv("VSTO_MAX_PAYLOAD_MB", "30"))
-VSTO_ARCUMAI_EMAIL           = os.getenv("VSTO_ARCUMAI_EMAIL", "arcumai@arcumai.swiss")
+VSTO_ARCUMAI_EMAIL           = os.getenv("VSTO_ARCUMAI_EMAIL", "assistant@arcumai.ch")
 VSTO_ARCUMAI_DISPLAY_NAME    = os.getenv("VSTO_ARCUMAI_DISPLAY_NAME", "ArcumAI Assistant")
 VSTO_LOOPBACK_TIMEOUT_MS     = int(os.getenv("VSTO_LOOPBACK_TIMEOUT_MS", "3600000"))
 VSTO_ENABLE_VIRTUAL_LOOPBACK = os.getenv("VSTO_ENABLE_VIRTUAL_LOOPBACK", "true").lower() == "true"

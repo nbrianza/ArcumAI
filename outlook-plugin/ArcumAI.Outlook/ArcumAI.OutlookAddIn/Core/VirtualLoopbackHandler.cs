@@ -264,7 +264,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     if (_syncContext != null)
                         _syncContext.Post(_ => { _mailFactory.SimulateSentItem(mail); _mailFactory.DeleteInterceptedItem(mail); _mailFactory.CreateResponseEmail(errorResponse); }, null);
                     else
-                    { _mailFactory.SimulateSentItem(mail); _mailFactory.DeleteInterceptedItem(mail); _mailFactory.CreateResponseEmail(errorResponse); }
+                        _logAction("ERROR", "VirtualLoopback: _syncContext is null — cannot post COM operations to STA thread. Skipping.");
                     return;
                 }
 
@@ -315,7 +315,8 @@ namespace ArcumAI.OutlookAddIn.Core
                     // Single combined post: COM cleanup + error response. Runs exactly once.
                     if (_syncContext != null)
                         _syncContext.Post(_ => { _mailFactory.SimulateSentItem(mail); _mailFactory.DeleteInterceptedItem(mail); _mailFactory.CreateResponseEmail(sizeErrorResp); }, null);
-                    else { _mailFactory.SimulateSentItem(mail); _mailFactory.DeleteInterceptedItem(mail); _mailFactory.CreateResponseEmail(sizeErrorResp); }
+                    else
+                        _logAction("ERROR", "VirtualLoopback: _syncContext is null — cannot post COM operations to STA thread. Skipping.");
                     return;  // _pendingRequests never touched — no ghost entry on disconnect
                 }
                 else if (payloadMB >= hardLimitMB * 7 / 10)
@@ -341,10 +342,7 @@ namespace ArcumAI.OutlookAddIn.Core
                 if (_syncContext != null)
                     _syncContext.Post(_ => { _mailFactory.SimulateSentItem(mail); _mailFactory.DeleteInterceptedItem(mail); }, null);
                 else
-                {
-                    _mailFactory.SimulateSentItem(mail);
-                    _mailFactory.DeleteInterceptedItem(mail);
-                }
+                    _logAction("ERROR", "VirtualLoopback: _syncContext is null — cannot post COM operations to STA thread. Skipping.");
 
                 // Send via WebSocket
                 _logAction("DEBUG", $"VirtualLoopback TX: {(jsonStr.Length > 500 ? jsonStr.Substring(0, 500) + "..." : jsonStr)}");
@@ -360,11 +358,18 @@ namespace ArcumAI.OutlookAddIn.Core
                 // Start timeout timer
                 _ = Task.Run(async () =>
                 {
-                    await Task.Delay(_config.LoopbackTimeoutMs);
-                    if (_pendingRequests.TryRemove(requestId, out var req))
+                    try
                     {
-                        _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
-                        _mailFactory.InjectResponseOnMainThread(_mailFactory.CreateTimeoutResponse(req), req);
+                        await Task.Delay(_config.LoopbackTimeoutMs);
+                        if (_pendingRequests.TryRemove(requestId, out var req))
+                        {
+                            _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
+                            _mailFactory.InjectResponseOnMainThread(_mailFactory.CreateTimeoutResponse(req), req);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logAction("ERROR", $"VirtualLoopback: Timeout handler error for {requestId}: {ex.Message}");
                     }
                 });
             }

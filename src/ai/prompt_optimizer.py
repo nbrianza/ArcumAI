@@ -1,10 +1,11 @@
+import asyncio
 import os
 from llama_index.core import Settings
 from llama_index.llms.gemini import Gemini
 
 from src.config import (
     PROMPT_OPTIMIZATION, ENABLE_NER_MASKING, NER_SCORE_THRESHOLD,
-    LLM_MODEL_NAME, CONTEXT_WINDOW
+    LLM_MODEL_NAME, CONTEXT_WINDOW, GEMINI_TIMEOUT
 )
 from src.logger import server_log as slog
 
@@ -150,7 +151,7 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
 
     try:
         llm = _get_gemini_optimizer()
-        response = await llm.acomplete(meta_prompt)
+        response = await asyncio.wait_for(llm.acomplete(meta_prompt), timeout=GEMINI_TIMEOUT)
         masked_optimized = str(response).strip()
         slog.info(f"PromptOptimization: Gemini completed ({len(masked_optimized)} chars)")
         slog.debug(f"PromptOptimization: Gemini output (before unmask):\n{masked_optimized}")

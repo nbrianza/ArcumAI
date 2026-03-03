@@ -138,48 +138,55 @@ def create_footer(session, user_data, chat_container, mode_display):
                     # Execute Logic - Now returns (response_obj, response_text, used_mode)
                     response_obj, response_text, used_mode = await session.run_chat_action(text)
 
-                    # Update Sidebar State
-                    if used_mode == "CLOUD":
-                        mode_display.text = "☁️ Gemini Cloud"
-                        mode_display.classes(replace='text-orange-600')
-                    elif used_mode == "FILE READER":
-                        mode_display.text = "📄 Attachment Analysis"
-                        mode_display.classes(replace='text-blue-600')
-                    elif used_mode == "RAG":
-                        mode_display.text = "📚 RAG (Database)"
-                        mode_display.classes(replace='text-purple-600')
-                    else:
-                        mode_display.text = "🟢 Local Chat"
-                        mode_display.classes(replace='text-green-600')
+                    # All UI updates are guarded: if the browser tab was closed/reset while
+                    # the AI was running, NiceGUI deletes the client and raises RuntimeError.
+                    # That is a normal lifecycle event, not an application error.
+                    try:
+                        # Update Sidebar State
+                        if used_mode == "CLOUD":
+                            mode_display.text = "☁️ Gemini Cloud"
+                            mode_display.classes(replace='text-orange-600')
+                        elif used_mode == "FILE READER":
+                            mode_display.text = "📄 Attachment Analysis"
+                            mode_display.classes(replace='text-blue-600')
+                        elif used_mode == "RAG":
+                            mode_display.text = "📚 RAG (Database)"
+                            mode_display.classes(replace='text-purple-600')
+                        else:
+                            mode_display.text = "🟢 Local Chat"
+                            mode_display.classes(replace='text-green-600')
 
-                    try: spinner.delete()
-                    except: pass
+                        try: spinner.delete()
+                        except: pass
 
-                    response_area.set_content(response_text or "⚠️ Empty response.")
+                        response_area.set_content(response_text or "⚠️ Empty response.")
 
-                    # Show Sources (RAG Only) - Now checking response_obj instead of response
-                    if not session.is_cloud and used_mode == "RAG" and response_obj and hasattr(response_obj, "source_nodes"):
-                        seen = set()
-                        with sources_row:
-                            ui.label("📚 Sources:").classes('text-xs font-bold text-gray-700 mr-2 self-center opacity-70')
-                            for node in response_obj.source_nodes:
-                                fname = node.metadata.get("filename", "Doc")
-                                meta_path = node.metadata.get("file_path")
-                                if fname not in seen:
-                                    seen.add(fname)
-                                    icon = 'picture_as_pdf' if fname.lower().endswith('.pdf') else 'description'
+                        # Show Sources (RAG Only) - Now checking response_obj instead of response
+                        if not session.is_cloud and used_mode == "RAG" and response_obj and hasattr(response_obj, "source_nodes"):
+                            seen = set()
+                            with sources_row:
+                                ui.label("📚 Sources:").classes('text-xs font-bold text-gray-700 mr-2 self-center opacity-70')
+                                for node in response_obj.source_nodes:
+                                    fname = node.metadata.get("filename", "Doc")
+                                    meta_path = node.metadata.get("file_path")
+                                    if fname not in seen:
+                                        seen.add(fname)
+                                        icon = 'picture_as_pdf' if fname.lower().endswith('.pdf') else 'description'
 
-                                    relative_path = None
-                                    if meta_path and Path(meta_path).exists():
-                                        try: relative_path = Path(meta_path).relative_to(ARCHIVE_DIR.absolute())
-                                        except: pass
-                                    if not relative_path: relative_path = find_relative_path(fname)
+                                        relative_path = None
+                                        if meta_path and Path(meta_path).exists():
+                                            try: relative_path = Path(meta_path).relative_to(ARCHIVE_DIR.absolute())
+                                            except: pass
+                                        if not relative_path: relative_path = find_relative_path(fname)
 
-                                    url_link = f'/documents/{quote(str(relative_path).replace("\\\\", "/"), safe="/")}'
-                                    with ui.link(target=url_link, new_tab=True).classes('no-underline decoration-none'):
-                                        with ui.row().classes('items-center border border-gray-400/30 rounded px-2 py-1 bg-white/50 hover:bg-white/80 cursor-pointer gap-1'):
-                                            ui.icon(icon).classes('text-gray-700 text-xs')
-                                            ui.label(fname).classes('text-xs text-gray-800 max-w-[150px] truncate')
+                                        url_link = f'/documents/{quote(str(relative_path).replace("\\\\", "/"), safe="/")}'
+                                        with ui.link(target=url_link, new_tab=True).classes('no-underline decoration-none'):
+                                            with ui.row().classes('items-center border border-gray-400/30 rounded px-2 py-1 bg-white/50 hover:bg-white/80 cursor-pointer gap-1'):
+                                                ui.icon(icon).classes('text-gray-700 text-xs')
+                                                ui.label(fname).classes('text-xs text-gray-800 max-w-[150px] truncate')
+
+                    except RuntimeError:
+                        slog.debug(f"[{user_data.get('username', '?')}] Client disconnected before response could be rendered")
 
                 except Exception as e:
                     try: spinner.delete()
@@ -188,8 +195,11 @@ def create_footer(session, user_data, chat_container, mode_display):
                     err_msg = str(e)
                     if "ReadTimeout" in err_msg:
                         err_msg = "⏳ The document is too complex. Please try again."
-                    ui.notify(f"Error: {err_msg}", type='negative')
-                    with bot_msg: ui.label(f"❌ {err_msg}").classes('text-red-600 font-bold')
+                    try:
+                        ui.notify(f"Error: {err_msg}", type='negative')
+                        with bot_msg: ui.label(f"❌ {err_msg}").classes('text-red-600 font-bold')
+                    except RuntimeError:
+                        slog.debug(f"[{user_data.get('username', '?')}] Client disconnected during error handling")
 
             input_field = ui.input(placeholder='Type here...').classes('w-full text-black').props('outlined rounded bg-color=white').on('keydown.enter', send_message)
             ui.button(icon='send', on_click=send_message).props('flat round color=primary')

@@ -17,7 +17,7 @@ from src.logger import server_log as slog
 
 def load_rag_engine(user_role="DEFAULT"):
     """RAG Engine: Searches the Vector Database."""
-    path_to_use = str(CHROMA_PATH) if 'CHROMA_PATH' in globals() else str(DB_PATH)
+    path_to_use = str(CHROMA_PATH)
 
     db = chromadb.PersistentClient(path=path_to_use)
     chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
@@ -38,7 +38,8 @@ def load_rag_engine(user_role="DEFAULT"):
                 mode="reciprocal_rerank",
                 use_async=False, verbose=True
             )
-        except: pass
+        except Exception as e:
+            slog.warning(f"BM25 load failed, using vector-only retriever: {e}")
 
     selected_prompt = ROLE_PROMPTS.get(user_role, DEFAULT_SYSTEM_PROMPT)
     slog.info(f"RAG Engine Loaded | Profile: {user_role}")

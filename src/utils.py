@@ -96,8 +96,8 @@ def pulisci_cartelle_vuote(root_dir: Path):
             if is_effectively_empty:
                 shutil.rmtree(folder, ignore_errors=False, onerror=handle_remove_readonly)
                 removed_count += 1
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"Could not remove empty folder '{folder}': {e}")
 
     if removed_count > 0:
         log.info(f"   🧹 Cleanup: Removed {removed_count} empty folders in {root_dir.name}.")
