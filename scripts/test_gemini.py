@@ -1,11 +1,18 @@
 import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
 import google.generativeai as genai
 
-# --- INSERISCI QUI LA TUA CHIAVE PER IL TEST ---
-# (Se è già nel file .env o nelle variabili di sistema, questo la sovrascrive per il test)
-MY_KEY = "AIzaSyCCXYIspIGJvIaeZNayod18W5CUTx6WH9I" # <--- INCOLLA LA TUA CHIAVE QUI TRA LE VIRGOLETTE
+# Load API key from .env file (never hardcode secrets in source code)
+env_file = Path(__file__).parent.parent / ".env"
+load_dotenv(env_file, override=True)
 
-os.environ["GOOGLE_API_KEY"] = MY_KEY
+MY_KEY = os.environ.get("GOOGLE_API_KEY", "")
+if not MY_KEY:
+    print("❌ GOOGLE_API_KEY not found. Set it in your .env file.")
+    sys.exit(1)
+
 genai.configure(api_key=MY_KEY)
 
 print(f"🔍 Test connessione con chiave: {MY_KEY[:10]}...")
