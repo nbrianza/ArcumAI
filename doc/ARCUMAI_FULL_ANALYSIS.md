@@ -176,12 +176,14 @@ ArcumAI is a **privacy-first AI assistant** for Swiss legal/fiduciary offices. I
 
 ### 4.1 Critical Security Issues
 
-#### SEC-1: Hardcoded API Key in Source Code (CRITICAL)
+#### SEC-1: Hardcoded API Key in Source Code (CRITICAL) — RESOLVED 2026-03-15
 **File:** `scripts/test_gemini.py:6`
-**Issue:** Google API key `AIzaSyCCXYIspIGJvIaeZNayod18W5CUTx6WH9I` is hardcoded in source and committed to git.
-**Same key appears in:** `.env:2` (which IS gitignored, but the script file is NOT)
-**Impact:** Anyone with repo access can use/abuse the API key.
-**Fix:** Delete the hardcoded key from the script, use `os.getenv("GOOGLE_API_KEY")` instead. Rotate the compromised key immediately.
+**Issue:** Google API key was hardcoded in source and committed to git history.
+**Resolution:**
+- Script rewritten to load key from `.env` via `dotenv` (no more hardcoded secret)
+- Compromised key (`AIzaSyCCXYI...`) revoked in Google Cloud Console
+- New key generated and stored only in `.env` (gitignored)
+- **Note:** The old key remains visible in git history. If this is a public or shared repo, consider using `git filter-branch` or BFG Repo-Cleaner to purge it.
 
 #### SEC-2: Default Storage Secret in Source Code (HIGH)
 **File:** `main_nice.py:173`
@@ -628,8 +630,8 @@ class Settings(BaseSettings):
 ## 8. Roadmap
 
 ### Phase 5: Security Hardening (Immediate — 1-2 weeks)
-- [ ] Rotate compromised API keys
-- [ ] Remove hardcoded secrets from source
+- [x] Rotate compromised API keys (done 2026-03-15)
+- [x] Remove hardcoded secrets from source (done 2026-03-15)
 - [ ] Enforce STORAGE_SECRET (no default)
 - [ ] Add WebSocket authentication token
 - [ ] Fix `requirements.txt` encoding
