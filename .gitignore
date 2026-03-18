@@ -32,8 +32,14 @@ logs/
 *.log
 
 # --- SICUREZZA ---
-users.json      # Ignora il file con le password hashate
-.env            # Se mai userai chiavi API in futuro
+users.json
+.env
+*.pfx
+*.key
+*.pem
+*.p12
+*.cert
+*.crt
 
 # --- IDE ---
 .vscode/

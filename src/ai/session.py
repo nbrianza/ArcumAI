@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Nicolas Brianza
+# Licensed under the MIT License. See LICENSE file in the project root.
 import asyncio
 from nicegui import run
 from llama_index.core.llms import ChatMessage, MessageRole
