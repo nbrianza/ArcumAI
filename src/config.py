@@ -118,7 +118,17 @@ VSTO_LOOPBACK_TIMEOUT_MS     = int(os.getenv("VSTO_LOOPBACK_TIMEOUT_MS", "360000
 VSTO_ENABLE_VIRTUAL_LOOPBACK = os.getenv("VSTO_ENABLE_VIRTUAL_LOOPBACK", "true").lower() == "true"
 VSTO_SHOW_NOTIFICATION       = os.getenv("VSTO_SHOW_NOTIFICATION", "true").lower() == "true"
 
-# --- 10. LOOPBACK QUEUE & RESILIENCE ---
+# --- 10a. RATE LIMITING ---
+RATE_LIMIT_MESSAGES    = int(os.getenv("RATE_LIMIT_MESSAGES", "20"))     # max messages per window
+RATE_LIMIT_WINDOW      = int(os.getenv("RATE_LIMIT_WINDOW", "60"))       # window in seconds
+RATE_LIMIT_STALE_TTL   = int(os.getenv("RATE_LIMIT_STALE_TTL", "3600"))  # remove idle users after (seconds)
+RATE_LIMIT_CLEANUP_INT = int(os.getenv("RATE_LIMIT_CLEANUP_INT", "300")) # cleanup interval (seconds)
+
+# WebSocket auth rate limiting (per IP)
+WS_AUTH_MAX_ATTEMPTS   = int(os.getenv("WS_AUTH_MAX_ATTEMPTS", "5"))     # max failed attempts per window
+WS_AUTH_WINDOW         = int(os.getenv("WS_AUTH_WINDOW", "60"))          # window in seconds
+
+# --- 10b. LOOPBACK QUEUE & RESILIENCE ---
 LOOPBACK_MAX_CONCURRENT  = int(os.getenv("LOOPBACK_MAX_CONCURRENT", "3"))
 PENDING_RESULT_TTL_HOURS = int(os.getenv("PENDING_RESULT_TTL_HOURS", "48"))
 PENDING_RESULTS_DIR      = os.getenv("PENDING_RESULTS_DIR", "temp/pending_results")

@@ -35,9 +35,9 @@ app.add_middleware(
 from src.config import (
     ARCHIVE_DIR, init_settings, PROFILE, LLM_MODEL_NAME, EMBED_MODEL_NAME,
     CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP,
-    PROMPT_OPTIMIZATION, ENABLE_NER_MASKING  # Import prompt optimization config
+    PROMPT_OPTIMIZATION, ENABLE_NER_MASKING,
 )
-from src.auth import load_users, verify_password
+from src.auth import load_users, verify_password, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
 from src.logger import server_log as slog
 
@@ -85,8 +85,16 @@ async def outlook_endpoint(websocket: WebSocket, user_id: str):
     Endpoint for the C# plugin to connect to.
     URL: ws://your-server:8080/ws/outlook/username
     """
+    client_ip = websocket.client.host if websocket.client else "unknown"
+
+    if ws_auth_is_rate_limited(client_ip):
+        slog.warning(f"WS rate-limited: IP '{client_ip}' blocked after repeated failed attempts.")
+        await websocket.close(code=4002, reason="Too many failed attempts")
+        return
+
     if not _is_valid_outlook_id(user_id):
-        slog.warning(f"WS rejected: outlook_id '{user_id}' not registered.")
+        ws_auth_record_failure(client_ip)
+        slog.warning(f"WS rejected: outlook_id '{user_id}' not registered (IP: {client_ip}).")
         await websocket.close(code=4001, reason="Outlook ID not authorized")
         return
 

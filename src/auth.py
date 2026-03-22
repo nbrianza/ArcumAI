@@ -2,9 +2,10 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 import json
 import re
+import time
 import bcrypt
 from pathlib import Path
-from src.config import BASE_DIR
+from src.config import BASE_DIR, WS_AUTH_MAX_ATTEMPTS, WS_AUTH_WINDOW
 from src.logger import server_log as slog
 
 USERS_FILE = BASE_DIR / "users.json"
@@ -91,3 +92,21 @@ def update_password(username, new_password):
         save_users(users)
         return True
     return False
+
+
+# --- WebSocket Auth Rate Limiting (per-IP) ---
+_ws_auth_failures: dict[str, list[float]] = {}
+
+
+def ws_auth_is_rate_limited(ip: str) -> bool:
+    """Returns True if this IP has exceeded WS_AUTH_MAX_ATTEMPTS in the last WS_AUTH_WINDOW seconds."""
+    now = time.time()
+    attempts = _ws_auth_failures.get(ip, [])
+    attempts = [t for t in attempts if now - t < WS_AUTH_WINDOW]
+    _ws_auth_failures[ip] = attempts
+    return len(attempts) >= WS_AUTH_MAX_ATTEMPTS
+
+
+def ws_auth_record_failure(ip: str) -> None:
+    """Record a failed WebSocket auth attempt for this IP."""
+    _ws_auth_failures.setdefault(ip, []).append(time.time())
