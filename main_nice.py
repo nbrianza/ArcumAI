@@ -40,15 +40,31 @@ from src.config import (
 from src.auth import load_users, verify_password, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
 from src.logger import server_log as slog
+from src.conversations import ConversationStore
 
 # Import UI Modules (Refactored)
 from src.ui.header import create_header
 from src.ui.sidebar import create_sidebar
 from src.ui.chat_area import create_chat_area
 from src.ui.footer import create_footer
+from src.ui.conversation_panel import create_conversation_panel
+from src.ui.admin import create_admin_page
+
+# Global conversation store (single instance, like bridge_manager)
+conversation_store = ConversationStore()
+
+# Register the /admin page route
+create_admin_page()
 
 # Initialize Settings
 init_settings()
+
+# --- Cleanup empty conversations on server start/stop ---
+conversation_store.cleanup_empty()
+
+@app.on_shutdown
+def _cleanup_on_shutdown():
+    conversation_store.cleanup_empty()
 
 # Setup Assets
 if not ARCHIVE_DIR.exists(): ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -116,8 +132,8 @@ def login_page():
 
     users_db = load_users()
 
-    with ui.card().classes('absolute-center w-96 p-8 shadow-2xl bg-slate-900 border border-slate-700'):
-        ui.image('/assets/logow.png').classes('w-32 mx-auto mb-4 object-contain')
+    with ui.card().classes('absolute-center w-96 p-8 shadow-2xl border').style('background-color: #2C6672; border-color: #2d5f64'):
+        ui.image('/assets/newArcumAILogo.PNG').classes('w-48 mx-auto mb-4 object-contain')
         ui.label('Restricted Access').classes('text-xl font-bold text-center w-full mb-4 text-white')
 
         username = ui.input('Username').classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
@@ -130,6 +146,7 @@ def login_page():
             if user in users_db:
                 stored_hash = users_db[user].get('pw_hash', '')
                 if verify_password(pwd, stored_hash):
+                    conversation_store.cleanup_empty(user)
                     app.storage.user.update({
                         'authenticated': True,
                         'username': user,
@@ -153,16 +170,70 @@ async def main_page():
         return
 
     user_data = app.storage.user
-    session = UserSession(username=user_data['username'], role=user_data['role'])
+    username = user_data['username']
+    session = UserSession(username=username, role=user_data['role'])
+
+    # --- Conversation persistence ---
+    # Start a new conversation by default; user can switch via the left panel.
+    current_conv_id = conversation_store.create_conversation(username)
+    session.set_conversation(conversation_store, current_conv_id)
+
+    # 0. CONVERSATION PANEL (left drawer) — defined before layout so callbacks can reference chat_container
+    chat_container_ref = [None]  # mutable ref, set after chat_area is created
+    refresh_panel_ref = [None]
+
+    def _reload_chat_for_conv(conv_id: str):
+        """Switch to an existing conversation: reload history into chat area."""
+        nonlocal current_conv_id
+        current_conv_id = conv_id
+        session.set_conversation(conversation_store, conv_id)
+
+        # Re-render chat messages from stored history
+        container = chat_container_ref[0]
+        if container is None:
+            return
+        container.clear()
+        conv = conversation_store.load_conversation(username, conv_id)
+        if not conv:
+            return
+        from urllib.parse import quote
+        avatar_me = f'https://ui-avatars.com/api/?name={quote(user_data["full_name"])}&background=gray&color=fff'
+        avatar_bot = f'https://ui-avatars.com/api/?name=AI&background=2ECC71&color=fff'
+        with container:
+            for msg in conv.get("messages", []):
+                if msg["role"] == "user":
+                    ui.chat_message(msg["content"], name='You', sent=True, avatar=avatar_me)
+                else:
+                    ui.chat_message(msg["content"], name='Arcum AI', sent=False, avatar=avatar_bot).props('bg-color=green-2 text-color=black')
+
+    def _start_new_conversation():
+        nonlocal current_conv_id
+        current_conv_id = conversation_store.create_conversation(username)
+        session.set_conversation(conversation_store, current_conv_id)
+        container = chat_container_ref[0]
+        if container:
+            container.clear()
+        if refresh_panel_ref[0]:
+            refresh_panel_ref[0]()
+
+    refresh_panel = create_conversation_panel(
+        username=username,
+        store=conversation_store,
+        on_select=_reload_chat_for_conv,
+        on_new=_start_new_conversation,
+    )
+    refresh_panel_ref[0] = refresh_panel
 
     # 1. SIDEBAR (Returns the status label for future updates)
     mode_display = create_sidebar(user_data)
 
     # 2. CHAT AREA (Returns the column to write to)
     chat_container = create_chat_area()
+    chat_container_ref[0] = chat_container
 
     # 3. FOOTER (Returns input and btn so we can modify them when switching cloud)
-    input_field, upload_btn = create_footer(session, user_data, chat_container, mode_display)
+    input_field, upload_btn = create_footer(session, user_data, chat_container, mode_display,
+                                            on_message_sent=lambda: refresh_panel_ref[0]() if refresh_panel_ref[0] else None)
 
     # 4. HEADER (Needs input_field and upload_btn to hide/modify them when switching Cloud)
     def update_ui_on_mode_change(is_cloud):

@@ -30,6 +30,59 @@ ArcumAI combines a RAG (Retrieval-Augmented Generation) pipeline over legal docu
                                          └────────┘ └────────┘ └────────┘
 ```
 
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLIENTS                                  │
+│  ┌──────────────┐  ┌─────────────────────────────────────────┐  │
+│  │   Web        │  │  Outlook VSTO Plugin (C#)               │  │
+│  │  Browser     │  │  WebSocket → ws://server:8080/ws/...    │  │
+│  └──────┬───────┘  └──────────────┬──────────────────────────┘  │
+│         │                         │                             │
+└─────────┼─────────────────────────┼─────────────────────────────┘
+          │ HTTP                    │ WebSocket (JSON-RPC / MCP)
+          ▼                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   PYTHON BACKEND (main_nice.py)                 │
+│  ┌──────────┐  ┌──────────────┐  ┌────────────────────────┐     │
+│  │  FastAPI │  │  NiceGUI UI  │  │  OutlookBridgeManager  │     │
+│  │  /health │  │  /login, /   │  │  /ws/outlook/{user_id} │     │
+│  └──────────┘  └──────┬───────┘  └───────────┬────────────┘     │
+│                       │                      │                  │
+│              ┌────────▼──────────────────────▼────────┐         │
+│              │           UserSession                  │         │
+│              │  ┌─────────┐ ┌───────┐ ┌──────┐ ┌────┐ │         │
+│              │  │RAG Eng. │ │Simple │ │Cloud │ │Agent││         │
+│              │  │(Hybrid) │ │(Local)│ │(Gem.)│ │(MCP)││         │
+│              │  └────┬────┘ └───────┘ └──────┘ └────┘ |         │
+│              └───────┼────────────────────────────────┘         │
+│                      ▼                                          │
+│  ┌─────────────────────────────────────────────────────┐        │
+│  │  DATA LAYER                                         │        │
+│  │  ChromaDB (vectors) + BM25 (keywords) + users.json  │        │
+│  └─────────────────────────────────────────────────────┘        │
+│                                                                 │
+│  ┌──────────────────┐  ┌─────────────────────┐                  │
+│  │  watcher.py       │  │  ingest.py         │                  │
+│  │  (folder monitor) │──▶│  (batch processing)│                 │
+│  └──────────────────┘  └─────────────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+### Data Flow — Virtual Loopback (Email → AI → Reply)
+
+```
+1. User sends email to assistant@arcumai.ch from Outlook
+2. VSTO plugin intercepts → extracts body + attachments
+3. Plugin sends JSON-RPC "virtual_loopback/send_email" via WebSocket
+4. Bridge ACKs → enqueues in priority queue
+5. Worker acquires AI semaphore → LoopbackProcessor processes:
+   a. Decode base64 attachments → extract text
+   b. Optimize prompt (local LLM, or optionally via Gemini with NER masking)
+   c. Route to RAG (no attachments) or FILE_READER (with attachments)
+   d. Generate AI response (local LLM, or optionally via Gemini with NER masking)
+6. Response sent back via WebSocket (or stored to disk if client offline)
+7. Plugin creates reply email in Outlook Inbox
+```
+
 ## Prerequisites
 
 - **Python 3.10+**
