@@ -13,7 +13,7 @@ from pathlib import Path
 
 from nicegui import ui, app, run
 
-from src.config import BASE_DIR, INBOX_DIR, COLLECTION_NAME, DB_PATH
+from src.config import BASE_DIR, INBOX_DIR, ARCHIVE_DIR, COLLECTION_NAME, DB_PATH
 from src.logger import server_log as slog
 
 
@@ -69,7 +69,9 @@ def _run_ingestion(target_path: str | None = None) -> str:
     """
     # If re-ingesting a single file, copy it back to inbox
     if target_path:
-        src = Path(target_path)
+        src = Path(target_path).resolve()
+        if not src.is_relative_to(ARCHIVE_DIR.resolve()):
+            raise ValueError(f"Path traversal rejected: {target_path!r}")
         if src.exists():
             import shutil
             INBOX_DIR.mkdir(parents=True, exist_ok=True)
