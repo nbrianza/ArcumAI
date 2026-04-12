@@ -93,8 +93,7 @@ namespace ArcumAI.OutlookAddIn.Core
 
                         if (address == targetAddress ||
                             name == "arcumai" ||
-                            name == "arcum ai" ||
-                            address.StartsWith("arcumai@"))
+                            name == "arcum ai")
                         {
                             hasArcum = true;
                         }
@@ -170,8 +169,7 @@ namespace ArcumAI.OutlookAddIn.Core
 
                         if (address == targetAddress ||
                             name == "arcumai" ||
-                            name == "arcum ai" ||
-                            address.StartsWith("arcumai@"))
+                            name == "arcum ai")
                         {
                             recip.Delete();
                             _logAction("DEBUG", "VirtualLoopback: Removed ArcumAI from recipients list");
