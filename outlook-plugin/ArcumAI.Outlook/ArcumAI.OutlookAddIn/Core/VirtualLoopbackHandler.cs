@@ -33,6 +33,10 @@ namespace ArcumAI.OutlookAddIn.Core
         private readonly ConcurrentDictionary<string, LoopbackRequest> _pendingRequests
             = new ConcurrentDictionary<string, LoopbackRequest>();
 
+        // Cancelled on WebSocket disconnect so orphaned timeout tasks don't fire false timeout
+        // emails when the server successfully delivers results on reconnect.
+        private volatile CancellationTokenSource _sessionCts = new CancellationTokenSource();
+
         // SynchronizationContext captured at construction (Outlook's STA thread)
         private readonly SynchronizationContext _syncContext;
 
@@ -355,17 +359,25 @@ namespace ArcumAI.OutlookAddIn.Core
                         $"Processing: \"{subject}\"...");
                 }
 
-                // Start timeout timer
+                // Start timeout timer — cancelled on disconnect so no false timeout email is
+                // injected when the server keeps processing and delivers on reconnect.
+                var sessionToken = _sessionCts.Token;
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await Task.Delay(_config.LoopbackTimeoutMs);
+                        await Task.Delay(_config.LoopbackTimeoutMs, sessionToken);
                         if (_pendingRequests.TryRemove(requestId, out var req))
                         {
                             _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
                             _mailFactory.InjectResponseOnMainThread(_mailFactory.CreateTimeoutResponse(req), req);
                         }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Disconnect cancelled the timer — server is still processing and will
+                        // deliver results on reconnect via the pending_results system.
+                        _logAction("DEBUG", $"VirtualLoopback: Timeout cancelled for {requestId} (disconnect)");
                     }
                     catch (Exception ex)
                     {
@@ -420,6 +432,13 @@ namespace ArcumAI.OutlookAddIn.Core
         /// </summary>
         public void NotifyPendingOnDisconnect()
         {
+            // Cancel all outstanding timeout tasks so they don't inject false timeout emails
+            // while the server keeps processing and prepares results for the next reconnect.
+            var oldCts = _sessionCts;
+            _sessionCts = new CancellationTokenSource();
+            oldCts.Cancel();
+            oldCts.Dispose();
+
             int count = _pendingRequests.Count;
             if (count == 0) return;
             _logAction("WARNING",
