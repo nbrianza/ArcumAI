@@ -19,6 +19,14 @@ from src.bridge.loopback_processor import LoopbackProcessor
 BRIDGE_TIMEOUT = float(os.getenv("BRIDGE_TIMEOUT", "60.0"))
 LOOPBACK_TIMEOUT = float(os.getenv("LOOPBACK_TIMEOUT", "3600.0"))
 
+_CONTROL_CHARS = str.maketrans({c: f"\\x{c:02x}" for c in range(0x20) if c not in (0x09,)})
+_CONTROL_CHARS.update({ord('\n'): '\\n', ord('\r'): '\\r', ord('\x1b'): '\\x1b'})
+
+
+def _safe_uid(uid: str) -> str:
+    """Sanitize a user_id for safe use in log messages (prevents log injection)."""
+    return uid.translate(_CONTROL_CHARS)
+
 
 class OutlookBridgeManager:
     def __init__(self):
@@ -44,11 +52,13 @@ class OutlookBridgeManager:
         self._processor = LoopbackProcessor(self.active_connections, self._pending)
 
     async def connect(self, websocket: WebSocket, user_id: str):
+        user_id = _safe_uid(user_id)
         await websocket.accept()
         self.active_connections[user_id] = websocket
         log.info(f"🔌 Bridge: User '{user_id}' connected via WebSocket.")
 
     def disconnect(self, user_id: str):
+        user_id = _safe_uid(user_id)
         self.active_connections.pop(user_id, None)
         self.client_types.pop(user_id, None)
 
@@ -75,6 +85,7 @@ class OutlookBridgeManager:
         """
         Sends a command to Outlook and waits for the response (blocking execution here).
         """
+        user_id = _safe_uid(user_id)
         if user_id not in self.active_connections:
             msg = f"⚠️ Outlook usage attempt failed: No client connected for user '{user_id}'."
             log.warning(msg)
@@ -126,7 +137,7 @@ class OutlookBridgeManager:
 
     async def handle_incoming_message(self, user_id: str, message: str):
         """Receives responses from Outlook and unblocks pending requests."""
-
+        user_id = _safe_uid(user_id)
         try:
             data = json.loads(message)
 

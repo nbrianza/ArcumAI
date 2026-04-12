@@ -26,6 +26,7 @@ input_utente/
 # --- MEMORIA AI (Database) ---
 chroma_db/
 storage_bm25/
+storage/
 
 # --- LOGS ---
 logs/

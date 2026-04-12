@@ -12,7 +12,7 @@ from src.config import ARCHIVE_DIR
 from src.logger import server_log as slog
 from src.ui.rate_limiter import _check_rate_limit, sanitize_input
 
-def create_footer(session, user_data, chat_container, mode_display):
+def create_footer(session, user_data, chat_container, mode_display, on_message_sent=None):
 
     with ui.footer().classes('bg-slate-50 p-4 border-t border-gray-200 pr-[300px]'):
 
@@ -159,7 +159,7 @@ def create_footer(session, user_data, chat_container, mode_display):
                             mode_display.classes(replace='text-green-600')
 
                         try: spinner.delete()
-                        except: pass
+                        except Exception: pass
 
                         response_area.set_content(response_text or "⚠️ Empty response.")
 
@@ -178,7 +178,7 @@ def create_footer(session, user_data, chat_container, mode_display):
                                         relative_path = None
                                         if meta_path and Path(meta_path).exists():
                                             try: relative_path = Path(meta_path).relative_to(ARCHIVE_DIR.absolute())
-                                            except: pass
+                                            except Exception: pass
                                         if not relative_path: relative_path = find_relative_path(fname)
 
                                         url_link = f'/documents/{quote(str(relative_path).replace("\\\\", "/"), safe="/")}'
@@ -187,12 +187,19 @@ def create_footer(session, user_data, chat_container, mode_display):
                                                 ui.icon(icon).classes('text-gray-700 text-xs')
                                                 ui.label(fname).classes('text-xs text-gray-800 max-w-[150px] truncate')
 
+                        # Notify conversation panel to refresh (title/count update)
+                        if on_message_sent:
+                            try:
+                                on_message_sent()
+                            except Exception as e:
+                                slog.error(f"on_message_sent callback failed: {e}", exc_info=True)
+
                     except RuntimeError:
                         slog.debug(f"[{user_data.get('username', '?')}] Client disconnected before response could be rendered")
 
                 except Exception as e:
                     try: spinner.delete()
-                    except: pass
+                    except Exception: pass
                     slog.error(f"[{user_data.get('username', '?')}] Error Chat", exc_info=True)
                     err_msg = str(e)
                     if "ReadTimeout" in err_msg:
