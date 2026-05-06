@@ -127,6 +127,7 @@ RATE_LIMIT_CLEANUP_INT = int(os.getenv("RATE_LIMIT_CLEANUP_INT", "300")) # clean
 # WebSocket auth rate limiting (per IP)
 WS_AUTH_MAX_ATTEMPTS   = int(os.getenv("WS_AUTH_MAX_ATTEMPTS", "5"))     # max failed attempts per window
 WS_AUTH_WINDOW         = int(os.getenv("WS_AUTH_WINDOW", "60"))          # window in seconds
+WS_RECEIVE_TIMEOUT     = int(os.getenv("WS_RECEIVE_TIMEOUT", "120"))     # inactivity timeout in seconds (4× heartbeat)
 
 # --- 10b. LOOPBACK QUEUE & RESILIENCE ---
 LOOPBACK_MAX_CONCURRENT  = int(os.getenv("LOOPBACK_MAX_CONCURRENT", "3"))

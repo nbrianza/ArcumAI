@@ -1,5 +1,6 @@
 # Copyright (c) 2026 Nicolas Brianza
 # Licensed under the MIT License. See LICENSE file in the project root.
+import asyncio
 import os
 from pathlib import Path
 from fastapi import WebSocket, WebSocketDisconnect
@@ -36,6 +37,7 @@ from src.config import (
     ARCHIVE_DIR, init_settings, PROFILE, LLM_MODEL_NAME, EMBED_MODEL_NAME,
     CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP,
     PROMPT_OPTIMIZATION, ENABLE_NER_MASKING,
+    WS_RECEIVE_TIMEOUT,
 )
 from src.auth import load_users, verify_password, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
@@ -117,7 +119,12 @@ async def outlook_endpoint(websocket: WebSocket, user_id: str):
     await bridge_manager.connect(websocket, user_id)
     try:
         while True:
-            data = await websocket.receive_text()
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=WS_RECEIVE_TIMEOUT)
+            except asyncio.TimeoutError:
+                slog.warning(f"WS inactivity timeout for '{user_id}' ({WS_RECEIVE_TIMEOUT}s) — closing")
+                await websocket.close(code=1001, reason="Inactivity timeout")
+                break
             await bridge_manager.handle_incoming_message(user_id, data)
     except WebSocketDisconnect:
         bridge_manager.disconnect(user_id)
