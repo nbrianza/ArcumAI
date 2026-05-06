@@ -226,9 +226,15 @@ ServerUrl (string): WebSocket server URL
 
 UseSecureConnection (bool): Use WSS instead of WS
   Default: false
+  Required: true for any non-localhost ServerUrl
 
 UserId (string): User identifier for authentication
   Default: Windows username (auto-detected)
+
+ApiKey (string): Shared secret sent as X-API-Key header on every connection.
+  Must match WS_API_KEY on the server (.env).
+  Default: "" (empty — server-side check disabled when server key is also empty)
+  Example: "ApiKey": "change-me-to-a-long-random-string"
 
 RECONNECTION SETTINGS:
 ---------------------
@@ -281,6 +287,7 @@ Production (Secure):
 {
   ""ServerUrl"": ""wss://arcumai.company.com"",
   ""UseSecureConnection"": true,
+  ""ApiKey"": ""change-me-to-a-long-random-string"",
   ""EnableLogging"": true,
   ""LogLevel"": ""WARNING"",
   ""AutoReconnect"": true,
