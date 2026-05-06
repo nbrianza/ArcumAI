@@ -139,14 +139,15 @@ def find_relative_path(filename: str) -> str:
     the normalized relative path for the web.
     Used by the UI to generate links to PDFs.
     """
+    safe_name = Path(filename).name  # strip any directory components (e.g. ../../etc/passwd → passwd)
+    if not safe_name or any(c in safe_name for c in ('*', '?', '[', ']')):
+        return filename  # reject glob metacharacters
+    archive_resolved = ARCHIVE_DIR.resolve()
     try:
-        # rglob searches in all subfolders
-        matches = list(ARCHIVE_DIR.rglob(filename))
-        if matches:
-            # Take the first match and calculate the relative path
-            rel_path = matches[0].relative_to(ARCHIVE_DIR)
-            # Normalize slashes for Windows/Web
-            return str(rel_path).replace('\\', '/')
+        for match in ARCHIVE_DIR.rglob(safe_name):
+            resolved = match.resolve()
+            if resolved.is_relative_to(archive_resolved):
+                return str(resolved.relative_to(archive_resolved)).replace('\\', '/')
     except Exception:
         pass
     return filename
