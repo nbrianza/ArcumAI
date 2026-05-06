@@ -44,8 +44,12 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             if (!string.IsNullOrEmpty(apiKey))
                 _ws.Options.SetRequestHeader("X-API-Key", apiKey);
 
-            // Build the URL: ws://localhost:8080/ws/outlook/username
-            var uriString = $"{baseUri.TrimEnd('/')}/ws/outlook/{userId}";
+            // Build the URL, upgrading to wss:// when UseSecureConnection is set
+            string effectiveBase = baseUri.TrimEnd('/');
+            if (PluginConfig.Instance.UseSecureConnection &&
+                effectiveBase.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+                effectiveBase = "wss://" + effectiveBase.Substring(5);
+            var uriString = $"{effectiveBase}/ws/outlook/{userId}";
 
             try
             {

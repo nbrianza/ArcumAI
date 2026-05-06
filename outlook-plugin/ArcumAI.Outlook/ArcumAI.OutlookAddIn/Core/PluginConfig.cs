@@ -116,6 +116,13 @@ namespace ArcumAI.OutlookAddIn.Core
                 return false;
             }
 
+            bool isLocalhost = ServerUrl.Contains("localhost") || ServerUrl.Contains("127.0.0.1");
+            if (!UseSecureConnection && !isLocalhost)
+            {
+                errorMessage = "UseSecureConnection must be true for non-localhost connections";
+                return false;
+            }
+
             if (ReconnectDelayMs < 1000)
             {
                 errorMessage = "ReconnectDelayMs must be at least 1000ms";
@@ -181,6 +188,8 @@ namespace ArcumAI.OutlookAddIn.Core
         public string GetWebSocketUrl()
         {
             string baseUrl = ServerUrl.TrimEnd('/');
+            if (UseSecureConnection && baseUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+                baseUrl = "wss://" + baseUrl.Substring(5);
             return $"{baseUrl}/ws/outlook/{UserId}";
         }
     }
