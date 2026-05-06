@@ -349,7 +349,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     _logAction("ERROR", "VirtualLoopback: _syncContext is null — cannot post COM operations to STA thread. Skipping.");
 
                 // Send via WebSocket
-                _logAction("DEBUG", $"VirtualLoopback TX: {(jsonStr.Length > 500 ? jsonStr.Substring(0, 500) + "..." : jsonStr)}");
+                _logAction("DEBUG", $"VirtualLoopback TX: {jsonStr.Length} bytes");
                 await _transport.SendAsync(jsonStr);
 
                 // Show processing notification only after the send succeeded

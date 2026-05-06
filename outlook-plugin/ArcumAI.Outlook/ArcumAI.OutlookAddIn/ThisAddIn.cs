@@ -50,11 +50,9 @@ namespace ArcumAI.OutlookAddIn
 
             _logger.Log("INFO", $"ArcumAI Plugin started | Server: {_config.ServerUrl} | User: {_config.UserId}");
 
-            // Dump full configuration to log file
             try
             {
-                string cfgJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
-                _logger.Log("INFO", $"Effective configuration: {cfgJson}");
+                _logger.Log("INFO", $"Effective configuration: ServerUrl={_config.ServerUrl}, UserId={_config.UserId}, LogLevel={_config.LogLevel}, EnableVirtualLoopback={_config.EnableVirtualLoopback}");
             }
             catch (Exception ex)
             {
@@ -221,8 +219,7 @@ namespace ArcumAI.OutlookAddIn
                 return;
             }
 
-            // Dump the raw received config for diagnostics
-            _logger.Log("INFO", $"Config sync received from server:{Environment.NewLine}{cfg.ToString(Formatting.Indented)}");
+            _logger.Log("INFO", $"Config sync received from server ({cfg.Count} keys)");
 
             // Update _config properties — safe from any thread (simple value/reference writes)
             int applied = 0;
@@ -350,7 +347,7 @@ namespace ArcumAI.OutlookAddIn
         {
             try
             {
-                _logger.Log("DEBUG", $"RX: {json}");
+                _logger.Log("DEBUG", $"RX: {json.Length} bytes");
 
                 if (string.IsNullOrWhiteSpace(json)) return;
 
@@ -440,7 +437,7 @@ namespace ArcumAI.OutlookAddIn
                 }
 
                 string responseJson = response.ToString(Formatting.None);
-                _logger.Log("DEBUG", $"TX: {responseJson}");
+                _logger.Log("DEBUG", $"TX: {responseJson.Length} bytes");
                 await _transport.SendAsync(responseJson);
             }
             catch (Exception ex)
