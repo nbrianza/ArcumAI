@@ -40,6 +40,10 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             _cts = new CancellationTokenSource();
             Interlocked.Exchange(ref _disconnectedFired, 0); // reset for new connection
 
+            string apiKey = PluginConfig.Instance.ApiKey;
+            if (!string.IsNullOrEmpty(apiKey))
+                _ws.Options.SetRequestHeader("X-API-Key", apiKey);
+
             // Build the URL: ws://localhost:8080/ws/outlook/username
             var uriString = $"{baseUri.TrimEnd('/')}/ws/outlook/{userId}";
 

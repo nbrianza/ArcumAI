@@ -28,6 +28,7 @@ namespace ArcumAI.OutlookAddIn.Core
         public string LogFilePath { get; set; }
         public bool UseSecureConnection { get; set; }
         public string UserId { get; set; }
+        public string ApiKey { get; set; }
         public bool AutoReconnect { get; set; }
         public int HeartbeatIntervalMs { get; set; }
 

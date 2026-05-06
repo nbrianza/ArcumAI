@@ -38,6 +38,7 @@ from src.config import (
     CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP,
     PROMPT_OPTIMIZATION, ENABLE_NER_MASKING,
     WS_RECEIVE_TIMEOUT,
+    WS_API_KEY,
 )
 from src.auth import load_users, verify_password, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
@@ -109,6 +110,14 @@ async def outlook_endpoint(websocket: WebSocket, user_id: str):
         slog.warning(f"WS rate-limited: IP '{client_ip}' blocked after repeated failed attempts.")
         await websocket.close(code=4002, reason="Too many failed attempts")
         return
+
+    if WS_API_KEY:
+        api_key = websocket.headers.get("x-api-key", "")
+        if api_key != WS_API_KEY:
+            ws_auth_record_failure(client_ip)
+            slog.warning(f"WS rejected: invalid API key (IP: {client_ip})")
+            await websocket.close(code=4003, reason="Invalid API key")
+            return
 
     if not _is_valid_outlook_id(user_id):
         ws_auth_record_failure(client_ip)

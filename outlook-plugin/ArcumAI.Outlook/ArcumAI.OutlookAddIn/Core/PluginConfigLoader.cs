@@ -72,6 +72,7 @@ namespace ArcumAI.OutlookAddIn.Core
             );
             config.UseSecureConnection = false;
             config.UserId = Environment.UserName.ToLower();
+            config.ApiKey = "";
             config.AutoReconnect = true;
             config.HeartbeatIntervalMs = 30000;
 
@@ -128,6 +129,9 @@ namespace ArcumAI.OutlookAddIn.Core
 
             if (appSettings["UserId"] != null && !string.IsNullOrWhiteSpace(appSettings["UserId"]))
                 config.UserId = appSettings["UserId"];
+
+            if (appSettings["ApiKey"] != null)
+                config.ApiKey = appSettings["ApiKey"];
 
             if (appSettings["AutoReconnect"] != null && bool.TryParse(appSettings["AutoReconnect"], out bool autoReconn))
                 config.AutoReconnect = autoReconn;
