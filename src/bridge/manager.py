@@ -124,8 +124,8 @@ class OutlookBridgeManager:
             return result
 
         except asyncio.TimeoutError:
-            if request_id in self.pending_requests:
-                del self.pending_requests[request_id]
+            future.cancel()
+            self.pending_requests.pop(request_id, None)
             err_msg = f"⚠️ Bridge Timeout: Outlook for {user_id} did not respond within {BRIDGE_TIMEOUT}s."
             log.error(err_msg)
             return err_msg
