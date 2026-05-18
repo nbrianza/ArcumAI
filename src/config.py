@@ -79,9 +79,16 @@ def init_settings():
     )
 
 # --- 5. OCR CONFIGURATION (Windows) ---
-TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-POPPLER_PATH = r"C:\Program Files\Poppler\Library\bin"
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+POPPLER_PATH  = os.getenv("POPPLER_PATH",  r"C:\Program Files\Poppler\Library\bin")
 OCR_ENABLED = Path(TESSERACT_CMD).exists() and Path(POPPLER_PATH).exists()
+if not OCR_ENABLED:
+    import warnings
+    warnings.warn(
+        f"OCR disabled: Tesseract not found at '{TESSERACT_CMD}' or Poppler not found at "
+        f"'{POPPLER_PATH}'. Set TESSERACT_CMD and POPPLER_PATH env vars to enable.",
+        stacklevel=2,
+    )
 #OCR_ENABLED = False # <--- Force OFF for massive ingestion without OCR
 
 # --- 6. WATCHER CONFIGURATION ---
