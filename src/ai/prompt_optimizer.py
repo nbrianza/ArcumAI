@@ -26,6 +26,9 @@ def _get_gemini_optimizer():
     return _gemini_optimizer
 
 
+_MAX_INPUT_CHARS = 100_000
+
+
 async def optimize_prompt_for_rag(subject: str, body: str, mode: str = None) -> str:
     """
     Optimize a raw email into a query for the RAG engine.
@@ -43,6 +46,13 @@ async def optimize_prompt_for_rag(subject: str, body: str, mode: str = None) -> 
     Returns:
         Optimized query string
     """
+    total_chars = len(subject) + len(body)
+    if total_chars > _MAX_INPUT_CHARS:
+        raise ValueError(
+            f"Email too large for optimization ({total_chars} chars, max {_MAX_INPUT_CHARS}). "
+            "Truncate the body before calling optimize_prompt_for_rag."
+        )
+
     if mode is None:
         mode = PROMPT_OPTIMIZATION.lower()
 
