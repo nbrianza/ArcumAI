@@ -267,7 +267,26 @@ async def main_page():
     create_header(user_data, session, update_ui_on_mode_change)
 
 if __name__ in {"__main__", "__mp_main__"}:
-    storage_secret = os.getenv('STORAGE_SECRET', 'CHIAVE_SEGRETA_ARCUM_AI_V2_DEV_DEFAULT')
+    _raw_secret = os.getenv('STORAGE_SECRET', '')
+    _dev_mode = os.getenv('ARCUMAI_ENV', '').lower() == 'dev'
+
+    if not _raw_secret:
+        if _dev_mode:
+            import secrets as _secrets
+            _raw_secret = _secrets.token_urlsafe(32)
+            slog.warning(
+                "STORAGE_SECRET not set — using a temporary ephemeral secret because ARCUMAI_ENV=dev. "
+                "Sessions will NOT survive a restart. Never use this in production."
+            )
+        else:
+            raise RuntimeError(
+                "STORAGE_SECRET is not set. The server refuses to start without it.\n"
+                "Generate one with:  python -c \"import secrets; print(secrets.token_urlsafe(32))\"\n"
+                "Then set it in your .env file or as an environment variable.\n"
+                "To allow an ephemeral secret during local development, also set ARCUMAI_ENV=dev."
+            )
+
+    storage_secret = _raw_secret
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', '8080'))
 
