@@ -13,6 +13,8 @@ prove/
 .nicegui
 users.json
 .claude
+doc/ArcumAI_Analysis_Fable5/
+.gitignore
 
 
 
