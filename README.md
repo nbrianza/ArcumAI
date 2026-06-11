@@ -10,9 +10,12 @@ ArcumAI combines a RAG (Retrieval-Augmented Generation) pipeline over legal docu
 - **Multi-format document ingestion** — PDF (with OCR fallback), DOCX, MSG, EML, XLSX, TXT
 - **Privacy-first design** — local LLM via Ollama by default; optional cloud (Gemini) with automatic PII masking (NER-based)
 - **Outlook integration** — C# VSTO add-in intercepts emails to a designated address, sends them to the AI backend, and returns responses as reply emails
-- **Web chat UI** — NiceGUI-based interface with authentication, conversation history, and file upload
+- **Web chat UI** — NiceGUI-based interface with authentication, conversation history, file upload, and admin panel
+- **Persistent conversation history** — per-user chat sessions stored to disk and accessible from the sidebar
+- **Admin panel** — user management, document ingestion control, and system status
 - **Multi-language** — Italian, English, German, French
 - **Hardware profiles** — configurable for high-resource servers or low-resource laptops
+- **Automated test suite** — 134 tests across 3 tiers covering auth, AI pipeline, bridge manager, and ingestion
 
 ## Architecture
 
@@ -177,12 +180,27 @@ The system supports two hardware profiles:
 - **HIGH_RESOURCE** — larger models, bigger context windows, more retrieval results
 - **LOW_RESOURCE** — optimized for laptops and limited hardware
 
+## Testing
+
+```powershell
+# Install pytest if needed
+.venv/Scripts/pip install pytest
+
+# Run the full suite (134 tests, ~25 seconds)
+.venv/Scripts/python.exe -m pytest tests/ -v
+```
+
+See [tests/TEST_CASES.md](tests/TEST_CASES.md) for a full description of every test case.
+
 ## Security Notes
 
 - **Never commit `.env` files** — they contain API keys and secrets
+- **`STORAGE_SECRET` is required** — the server refuses to start without it in production; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 - **Local-first** — by default, all AI processing uses Ollama (no data leaves your machine)
 - **PII masking** — when using cloud APIs, NER-based masking automatically redacts personal data before sending
-- **Authentication** — bcrypt password hashing, JWT session tokens
+- **Authentication** — bcrypt password hashing, per-IP brute-force protection on WebSocket auth, optional shared-secret header
+- **Input sanitization** — all user input is stripped of control characters and length-capped before processing
+- **Log injection prevention** — user IDs are sanitized at all bridge entry points
 
 ## License
 
