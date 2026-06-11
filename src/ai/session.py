@@ -57,11 +57,33 @@ class UserSession:
         self.cloud_engine = None
         self.agent_engine = None
 
+        # Conversation persistence (set externally via set_conversation)
+        self._conv_store = None
+        self._conv_id = None
+
         # 1. RETRIEVE OUTLOOK ID
         self.outlook_id = self._get_outlook_id()
 
         # 2. CREATE USER-SPECIFIC TOOLS
         self.tools = self._create_user_tools()
+
+    def set_conversation(self, store, conv_id: str):
+        """Bind this session to a persistent conversation."""
+        self._conv_store = store
+        self._conv_id = conv_id
+        # Reload history from stored conversation
+        self.global_history = []
+        conv = store.load_conversation(self.username, conv_id)
+        if conv:
+            for msg in conv.get("messages", []):
+                role = MessageRole.USER if msg["role"] == "user" else MessageRole.ASSISTANT
+                self.global_history.append(
+                    ChatMessage(role=role, content=msg["content"])
+                )
+
+    @property
+    def conv_id(self) -> str | None:
+        return self._conv_id
 
     def _get_outlook_id(self):
         users = load_users()
@@ -196,14 +218,39 @@ class UserSession:
             return "SIMPLE"
         except Exception: return "RAG"
 
-    def _format_history_as_text(self, limit=6):
-        if not self.global_history: return ""
-        history_text = "--- RECENT CHAT CONTEXT ---\n"
-        recent_msgs = self.global_history[-limit:]
-        for msg in recent_msgs:
+    def _format_history_as_text(self):
+        """Build history text that fits within a token budget.
+
+        Uses 25% of the configured CONTEXT_WINDOW for history.
+        Token estimation: ~4 chars per token (conservative, works for
+        most Latin-script languages without needing the actual tokenizer).
+        Messages are included newest-first until the budget is exhausted,
+        preserving the most recent context.
+        """
+        if not self.global_history:
+            return ""
+
+        from src.config import CONTEXT_WINDOW
+        token_budget = int(CONTEXT_WINDOW * 0.25)
+        chars_budget = token_budget * 4  # ~4 chars/token estimate
+
+        selected = []
+        used_chars = 0
+        # Walk backwards (most recent first)
+        for msg in reversed(self.global_history):
             role_label = "USER" if msg.role == MessageRole.USER else "AI"
-            content_preview = str(msg.content)[:800]
-            history_text += f"{role_label}: {content_preview}\n"
+            line = f"{role_label}: {str(msg.content)[:800]}\n"
+            if used_chars + len(line) > chars_budget:
+                break
+            selected.append(line)
+            used_chars += len(line)
+
+        if not selected:
+            return ""
+
+        selected.reverse()  # restore chronological order
+        history_text = "--- RECENT CHAT CONTEXT ---\n"
+        history_text += "".join(selected)
         history_text += "--- END CONTEXT ---\n"
         return history_text
 
@@ -288,6 +335,11 @@ class UserSession:
 
         self.global_history.append(ChatMessage(role=MessageRole.USER, content=clean_query))
         self.global_history.append(ChatMessage(role=MessageRole.ASSISTANT, content=response_text))
+
+        # Persist to conversation file if bound
+        if self._conv_store and self._conv_id:
+            self._conv_store.append_message(self.username, self._conv_id, "user", clean_query)
+            self._conv_store.append_message(self.username, self._conv_id, "assistant", response_text)
 
         # Return both the raw object (for source_nodes) and the text
         return response_obj, response_text, used_mode

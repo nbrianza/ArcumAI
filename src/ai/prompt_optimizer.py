@@ -26,6 +26,9 @@ def _get_gemini_optimizer():
     return _gemini_optimizer
 
 
+_MAX_INPUT_CHARS = 100_000
+
+
 async def optimize_prompt_for_rag(subject: str, body: str, mode: str = None) -> str:
     """
     Optimize a raw email into a query for the RAG engine.
@@ -43,6 +46,13 @@ async def optimize_prompt_for_rag(subject: str, body: str, mode: str = None) -> 
     Returns:
         Optimized query string
     """
+    total_chars = len(subject) + len(body)
+    if total_chars > _MAX_INPUT_CHARS:
+        raise ValueError(
+            f"Email too large for optimization ({total_chars} chars, max {_MAX_INPUT_CHARS}). "
+            "Truncate the body before calling optimize_prompt_for_rag."
+        )
+
     if mode is None:
         mode = PROMPT_OPTIMIZATION.lower()
 
@@ -141,8 +151,8 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
         f"4. Include relevant keywords that would match document chunks\n"
         f"5. Remove greetings, pleasantries, signatures, and noise\n\n"
         f"CRITICAL PRIVACY RULE:\n"
-        f"The email contains privacy-masked placeholders in the format <ENTITY_TYPE_NUMBER>.\n"
-        f"Examples: <PERSON_1>, <PERSON_2>, <CH_IBAN_1>, <ORGANIZATION_1>, <EMAIL_ADDRESS_1>\n"
+        f"The email contains privacy-masked placeholders in the format __PII_xxxxxxxx__ (8 hex chars).\n"
+        f"Examples: __PII_a3f8b2c1__, __PII_7d2e9f04__, __PII_c91b3e72__\n"
         f"You MUST preserve these placeholders EXACTLY as they appear - do not modify, generalize, or remove them.\n"
         f"These placeholders will be replaced with real values after your optimization.\n\n"
         f"Output ONLY the optimized query, nothing else.\n\n"

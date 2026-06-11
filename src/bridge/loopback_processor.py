@@ -231,8 +231,8 @@ class LoopbackProcessor:
         finally:
             try:
                 tmp_path.unlink()
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning(f"VirtualLoopback: failed to delete temp file '{tmp_path}': {e}")
 
     async def _route_to_ai_engine(
         self,

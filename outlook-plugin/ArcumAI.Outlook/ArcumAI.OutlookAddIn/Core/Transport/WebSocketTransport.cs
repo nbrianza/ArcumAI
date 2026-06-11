@@ -40,8 +40,16 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             _cts = new CancellationTokenSource();
             Interlocked.Exchange(ref _disconnectedFired, 0); // reset for new connection
 
-            // Build the URL: ws://localhost:8080/ws/outlook/username
-            var uriString = $"{baseUri.TrimEnd('/')}/ws/outlook/{userId}";
+            string apiKey = PluginConfig.Instance.ApiKey;
+            if (!string.IsNullOrEmpty(apiKey))
+                _ws.Options.SetRequestHeader("X-API-Key", apiKey);
+
+            // Build the URL, upgrading to wss:// when UseSecureConnection is set
+            string effectiveBase = baseUri.TrimEnd('/');
+            if (PluginConfig.Instance.UseSecureConnection &&
+                effectiveBase.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+                effectiveBase = "wss://" + effectiveBase.Substring(5);
+            var uriString = $"{effectiveBase}/ws/outlook/{userId}";
 
             try
             {

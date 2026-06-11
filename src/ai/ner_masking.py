@@ -13,6 +13,7 @@ Features:
 """
 
 import os
+import uuid
 from typing import Dict, List, Tuple, Optional
 from src.logger import server_log as log
 
@@ -208,8 +209,8 @@ def mask_pii(text: str, language: str = "it", score_threshold: float = 0.35) -> 
             count = entity_counter.get(entity_type, 0) + 1
             entity_counter[entity_type] = count
 
-            # Create numbered placeholder (e.g., <PERSON_1>, <CH_IBAN_1>)
-            numbered_placeholder = f"<{entity_type}_{count}>"
+            # UUID-based placeholder prevents collision with text naturally containing <TYPE_N> patterns
+            numbered_placeholder = f"__PII_{uuid.uuid4().hex[:8]}__"
 
             # Replace in text (reverse order so positions stay valid)
             masked_text = masked_text[:start] + numbered_placeholder + masked_text[end:]

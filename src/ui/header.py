@@ -12,9 +12,9 @@ def create_header(user_data, session, update_callback):
         update_callback: Function to call when mode changes (Cloud/Local)
                          to update Sidebar and Footer.
     """
-    with ui.header().classes('bg-slate-900 text-white items-center gap-4 shadow-lg h-20 px-4 border-b border-slate-800'):
+    with ui.header().classes('text-white items-center gap-4 shadow-lg h-20 px-4').style('background-color: #2C6672'):
         # LOGO
-        ui.image('/assets/logow.png').classes('h-16 w-16 object-contain')
+        ui.image('/assets/newArcumAILogo.PNG').style('max-width: 220px; max-height: 60px; object-fit: contain')
 
         # User Badge
         with ui.row().classes('items-center gap-2 bg-slate-800 rounded-full px-3 py-1 ml-4 hidden md:flex border border-slate-700'):
@@ -24,12 +24,19 @@ def create_header(user_data, session, update_callback):
 
         ui.space()
 
+        # Admin link (visible only to ADMIN role)
+        if user_data.get('role') == 'ADMIN':
+            ui.button('Admin', icon='admin_panel_settings',
+                      on_click=lambda: ui.navigate.to('/admin')).props('flat color=orange-4 size=sm')
+
         # Status Label
         status_label = ui.label('MODE: SAFE LOCAL').classes('font-bold text-green-400 text-sm md:text-base')
 
         # Logout Function
         def logout():
             from nicegui import app
+            from src.conversations import ConversationStore
+            ConversationStore().cleanup_empty(user_data.get('username'))
             app.storage.user.clear()
             ui.navigate.to('/login')
 

@@ -50,11 +50,9 @@ namespace ArcumAI.OutlookAddIn
 
             _logger.Log("INFO", $"ArcumAI Plugin started | Server: {_config.ServerUrl} | User: {_config.UserId}");
 
-            // Dump full configuration to log file
             try
             {
-                string cfgJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
-                _logger.Log("INFO", $"Effective configuration: {cfgJson}");
+                _logger.Log("INFO", $"Effective configuration: ServerUrl={_config.ServerUrl}, UserId={_config.UserId}, LogLevel={_config.LogLevel}, EnableVirtualLoopback={_config.EnableVirtualLoopback}");
             }
             catch (Exception ex)
             {
@@ -221,8 +219,7 @@ namespace ArcumAI.OutlookAddIn
                 return;
             }
 
-            // Dump the raw received config for diagnostics
-            _logger.Log("INFO", $"Config sync received from server:{Environment.NewLine}{cfg.ToString(Formatting.Indented)}");
+            _logger.Log("INFO", $"Config sync received from server ({cfg.Count} keys)");
 
             // Update _config properties — safe from any thread (simple value/reference writes)
             int applied = 0;
@@ -350,9 +347,17 @@ namespace ArcumAI.OutlookAddIn
         {
             try
             {
-                _logger.Log("DEBUG", $"RX: {json}");
+                _logger.Log("DEBUG", $"RX: {json.Length} bytes");
 
                 if (string.IsNullOrWhiteSpace(json)) return;
+
+                int maxBytes = _config.MaxPayloadSizeMB * 1024 * 1024;
+                if (json.Length > maxBytes)
+                {
+                    _logger.Log("WARNING", $"Rejected oversized payload: {json.Length} bytes (limit: {_config.MaxPayloadSizeMB} MB)");
+                    return;
+                }
+
                 JObject request = JObject.Parse(json);
                 string method = (string)request["method"];
                 string id = (string)request["id"];
@@ -385,25 +390,35 @@ namespace ArcumAI.OutlookAddIn
 
                 if (method == "tools/call")
                 {
-                    string toolName = (string)request["params"]["name"];
-                    JToken args = request["params"]["arguments"];
-
-                    _logger.Log("INFO", $"Executing tool: {toolName}");
-
-                    if (toolName == "search_emails")
+                    JObject paramsObj = request["params"] as JObject;
+                    if (paramsObj == null)
                     {
-                        string query = (string)args["query"] ?? "";
-                        resultData = _dataProvider.GetEmails(query);
-                    }
-                    else if (toolName == "get_calendar")
-                    {
-                        string filter = (string)args["filter"] ?? "today";
-                        resultData = _dataProvider.GetCalendar(filter);
+                        errorMsg = "tools/call request is missing 'params' field.";
+                        _logger.Log("WARNING", errorMsg);
+                        // fall through to send error response
                     }
                     else
                     {
-                        errorMsg = $"Unknown tool '{toolName}'.";
-                        _logger.Log("WARNING", errorMsg);
+                        string toolName = (string)paramsObj["name"];
+                        JToken args = paramsObj["arguments"];
+
+                        _logger.Log("INFO", $"Executing tool: {toolName}");
+
+                        if (toolName == "search_emails")
+                        {
+                            string query = (string)args["query"] ?? "";
+                            resultData = _dataProvider.GetEmails(query);
+                        }
+                        else if (toolName == "get_calendar")
+                        {
+                            string filter = (string)args["filter"] ?? "today";
+                            resultData = _dataProvider.GetCalendar(filter);
+                        }
+                        else
+                        {
+                            errorMsg = $"Unknown tool '{toolName}'.";
+                            _logger.Log("WARNING", errorMsg);
+                        }
                     }
                 }
                 var response = new JObject
@@ -422,7 +437,7 @@ namespace ArcumAI.OutlookAddIn
                 }
 
                 string responseJson = response.ToString(Formatting.None);
-                _logger.Log("DEBUG", $"TX: {responseJson}");
+                _logger.Log("DEBUG", $"TX: {responseJson.Length} bytes");
                 await _transport.SendAsync(responseJson);
             }
             catch (Exception ex)

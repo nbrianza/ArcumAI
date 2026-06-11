@@ -79,9 +79,16 @@ def init_settings():
     )
 
 # --- 5. OCR CONFIGURATION (Windows) ---
-TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-POPPLER_PATH = r"C:\Program Files\Poppler\Library\bin"
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+POPPLER_PATH  = os.getenv("POPPLER_PATH",  r"C:\Program Files\Poppler\Library\bin")
 OCR_ENABLED = Path(TESSERACT_CMD).exists() and Path(POPPLER_PATH).exists()
+if not OCR_ENABLED:
+    import warnings
+    warnings.warn(
+        f"OCR disabled: Tesseract not found at '{TESSERACT_CMD}' or Poppler not found at "
+        f"'{POPPLER_PATH}'. Set TESSERACT_CMD and POPPLER_PATH env vars to enable.",
+        stacklevel=2,
+    )
 #OCR_ENABLED = False # <--- Force OFF for massive ingestion without OCR
 
 # --- 6. WATCHER CONFIGURATION ---
@@ -118,7 +125,19 @@ VSTO_LOOPBACK_TIMEOUT_MS     = int(os.getenv("VSTO_LOOPBACK_TIMEOUT_MS", "360000
 VSTO_ENABLE_VIRTUAL_LOOPBACK = os.getenv("VSTO_ENABLE_VIRTUAL_LOOPBACK", "true").lower() == "true"
 VSTO_SHOW_NOTIFICATION       = os.getenv("VSTO_SHOW_NOTIFICATION", "true").lower() == "true"
 
-# --- 10. LOOPBACK QUEUE & RESILIENCE ---
+# --- 10a. RATE LIMITING ---
+RATE_LIMIT_MESSAGES    = int(os.getenv("RATE_LIMIT_MESSAGES", "20"))     # max messages per window
+RATE_LIMIT_WINDOW      = int(os.getenv("RATE_LIMIT_WINDOW", "60"))       # window in seconds
+RATE_LIMIT_STALE_TTL   = int(os.getenv("RATE_LIMIT_STALE_TTL", "3600"))  # remove idle users after (seconds)
+RATE_LIMIT_CLEANUP_INT = int(os.getenv("RATE_LIMIT_CLEANUP_INT", "300")) # cleanup interval (seconds)
+
+# WebSocket auth rate limiting (per IP)
+WS_AUTH_MAX_ATTEMPTS   = int(os.getenv("WS_AUTH_MAX_ATTEMPTS", "5"))     # max failed attempts per window
+WS_AUTH_WINDOW         = int(os.getenv("WS_AUTH_WINDOW", "60"))          # window in seconds
+WS_RECEIVE_TIMEOUT     = int(os.getenv("WS_RECEIVE_TIMEOUT", "120"))     # inactivity timeout in seconds (4× heartbeat)
+WS_API_KEY             = os.getenv("WS_API_KEY", "")                    # shared secret for plugin auth; empty = disabled
+
+# --- 10b. LOOPBACK QUEUE & RESILIENCE ---
 LOOPBACK_MAX_CONCURRENT  = int(os.getenv("LOOPBACK_MAX_CONCURRENT", "3"))
 PENDING_RESULT_TTL_HOURS = int(os.getenv("PENDING_RESULT_TTL_HOURS", "48"))
 PENDING_RESULTS_DIR      = os.getenv("PENDING_RESULTS_DIR", "temp/pending_results")
