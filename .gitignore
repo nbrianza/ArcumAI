@@ -1,0 +1,66 @@
+# --- PYTHON & SISTEMA ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+Thumbs.db
+desktop.ini
+.DS_Store
+.files/
+prove/
+.nicegui
+.claude
+doc/ArcumAI_Analysis_Fable5/
+
+# --- DATI CLIENTI (Privacy Assoluta) ---
+data_nuovi/
+data_archivio/
+data_error/
+data_duplicati/
+input_utente/
+
+# --- MEMORIA AI (Database) ---
+chroma_db/
+storage_bm25/
+storage/
+
+# --- LOGS ---
+logs/
+*.log
+
+# --- SICUREZZA ---
+users.json
+.env
+*.pfx
+*.key
+*.pem
+*.p12
+*.cert
+*.crt
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# Ignora tutti i file che finiscono con .pdf SOLO dentro la cartella "doc"
+doc/*.pdf
+doc/*.rtf
+doc/~$*
+
+# --- C# / VISUAL STUDIO (Outlook Plugin) ---
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+packages/
+_ReSharper*/
+*.generated.cs
+
+# File temporanei di Outlook VSTO
+*.vsto
+*.deploy
