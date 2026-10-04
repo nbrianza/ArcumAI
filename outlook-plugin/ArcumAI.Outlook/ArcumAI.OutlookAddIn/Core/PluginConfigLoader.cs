@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace ArcumAI.OutlookAddIn.Core
 {
@@ -17,6 +18,13 @@ namespace ArcumAI.OutlookAddIn.Core
         /// Priority: config.json > app.config > defaults
         /// </summary>
         internal static PluginConfig LoadConfiguration()
+        {
+            PluginConfig config = LoadLocalConfiguration();
+            ApplyServerConfigCache(config);
+            return config;
+        }
+
+        private static PluginConfig LoadLocalConfiguration()
         {
             var config = new PluginConfig();
 
@@ -50,6 +58,64 @@ namespace ArcumAI.OutlookAddIn.Core
             }
 
             return config;
+        }
+
+        // ---------------------------------------------------------------
+        //  SERVER-PUSHED CONFIG (client/identify handshake)
+        // ---------------------------------------------------------------
+        // Kept in its own file rather than via PluginConfig.Save(): Save() writes the full
+        // config.json, which would then shadow app.config permanently.
+
+        internal static string GetServerConfigCachePath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "ArcumAI", "Outlook", "server-config.json");
+        }
+
+        /// <summary>
+        /// Applies the server-managed keys present in cfg. Returns how many were applied.
+        /// </summary>
+        internal static int ApplyServerValues(PluginConfig config, JObject cfg)
+        {
+            int applied = 0;
+            if (cfg["max_attachment_size_mb"] != null)       { config.MaxAttachmentSizeMB        = cfg.Value<int>("max_attachment_size_mb");          applied++; }
+            if (cfg["max_total_attachments_mb"] != null)     { config.MaxTotalAttachmentsMB      = cfg.Value<int>("max_total_attachments_mb");        applied++; }
+            if (cfg["max_payload_size_mb"] != null)          { config.MaxPayloadSizeMB           = cfg.Value<int>("max_payload_size_mb");             applied++; }
+            if (cfg["arcumai_email"] != null)                { config.ArcumAIEmailAddress        = cfg.Value<string>("arcumai_email");                applied++; }
+            if (cfg["arcumai_display_name"] != null)         { config.ArcumAIDisplayName         = cfg.Value<string>("arcumai_display_name");         applied++; }
+            if (cfg["loopback_timeout_ms"] != null)          { config.LoopbackTimeoutMs          = cfg.Value<int>("loopback_timeout_ms");             applied++; }
+            if (cfg["enable_virtual_loopback"] != null)      { config.EnableVirtualLoopback      = cfg.Value<bool>("enable_virtual_loopback");        applied++; }
+            if (cfg["show_processing_notification"] != null) { config.ShowProcessingNotification = cfg.Value<bool>("show_processing_notification"); applied++; }
+            return applied;
+        }
+
+        internal const int ServerManagedKeyCount = 8;
+
+        internal static void SaveServerConfigCache(JObject cfg)
+        {
+            string path = GetServerConfigCachePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, cfg.ToString(Formatting.Indented));
+            if (File.Exists(path))
+                File.Replace(tmp, path, null);
+            else
+                File.Move(tmp, path);
+        }
+
+        private static void ApplyServerConfigCache(PluginConfig config)
+        {
+            string path = GetServerConfigCachePath();
+            if (!File.Exists(path)) return;
+            try
+            {
+                ApplyServerValues(config, JObject.Parse(File.ReadAllText(path)));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ignoring unreadable server config cache: {ex.Message}");
+            }
         }
 
         /// <summary>

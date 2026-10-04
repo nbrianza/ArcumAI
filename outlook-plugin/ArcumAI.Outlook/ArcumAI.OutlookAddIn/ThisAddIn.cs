@@ -221,21 +221,23 @@ namespace ArcumAI.OutlookAddIn
             _logger.Log("INFO", $"Config sync received from server ({cfg.Count} keys)");
 
             // Update _config properties — safe from any thread (simple value/reference writes)
-            int applied = 0;
-            if (cfg["max_attachment_size_mb"] != null)       { _config.MaxAttachmentSizeMB        = cfg.Value<int>("max_attachment_size_mb");    applied++; }
-            if (cfg["max_total_attachments_mb"] != null)     { _config.MaxTotalAttachmentsMB      = cfg.Value<int>("max_total_attachments_mb");  applied++; }
-            if (cfg["max_payload_size_mb"] != null)          { _config.MaxPayloadSizeMB           = cfg.Value<int>("max_payload_size_mb");        applied++; }
-            if (cfg["arcumai_email"] != null)                { _config.ArcumAIEmailAddress        = cfg.Value<string>("arcumai_email");          applied++; }
-            if (cfg["arcumai_display_name"] != null)         { _config.ArcumAIDisplayName         = cfg.Value<string>("arcumai_display_name");   applied++; }
-            if (cfg["loopback_timeout_ms"] != null)          { _config.LoopbackTimeoutMs          = cfg.Value<int>("loopback_timeout_ms");       applied++; }
-            if (cfg["enable_virtual_loopback"] != null)      { _config.EnableVirtualLoopback      = cfg.Value<bool>("enable_virtual_loopback");  applied++; }
-            if (cfg["show_processing_notification"] != null) { _config.ShowProcessingNotification = cfg.Value<bool>("show_processing_notification"); applied++; }
+            int applied = PluginConfigLoader.ApplyServerValues(_config, cfg);
             Thread.MemoryBarrier(); // ensure all config writes are visible to the STA thread before it reads them
 
             if (!_config.Validate(out string syncValidationError))
                 _logger.Log("WARNING", $"Config sync produced invalid configuration: {syncValidationError}");
 
-            int total = 8;
+            // Persist so the next Outlook start uses these values before the server is reachable.
+            try
+            {
+                PluginConfigLoader.SaveServerConfigCache(cfg);
+            }
+            catch (Exception ex)
+            {
+                _logger.Log("WARNING", $"Could not persist server config: {ex.Message}");
+            }
+
+            int total = PluginConfigLoader.ServerManagedKeyCount;
             _logger.Log(applied == total ? "INFO" : "WARNING",
                 $"Config sync applied: {applied}/{total} keys — " +
                 $"MaxAttachment={_config.MaxAttachmentSizeMB}MB, " +
