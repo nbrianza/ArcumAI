@@ -40,7 +40,9 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
 
             long maxFileBytes = (long)_config.MaxAttachmentSizeMB * 1024 * 1024;
             long maxTotalBytes = (long)_config.MaxTotalAttachmentsMB * 1024 * 1024;
+            long maxEncodedBytes = (long)_config.MaxPayloadSizeMB * 1024 * 1024;
             long totalBytes = 0;
+            long totalEncodedBytes = 0;
 
             try
             {
@@ -96,11 +98,38 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                             continue;
                         }
 
-                        // Save to temp file and read bytes
-                        tempPath = Path.Combine(Path.GetTempPath(), $"arcumai_{Guid.NewGuid()}_{fileName}");
+                        tempPath = Path.Combine(Path.GetTempPath(), $"arcumai_{Guid.NewGuid()}_{Path.GetFileName(fileName)}");
                         att.SaveAsFile(tempPath);
+
+                        // att.Size is the MAPI size, which can differ from the saved file
+                        // (e.g. embedded items): re-check on disk before loading into memory.
+                        fileSize = new FileInfo(tempPath).Length;
+                        if (fileSize > maxFileBytes)
+                        {
+                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — saved file exceeds per-file size limit");
+                            skipped.Add($"{fileName} ({fileSize / 1024 / 1024} MB, limit is {_config.MaxAttachmentSizeMB} MB)");
+                            continue;
+                        }
+                        if (totalBytes + fileSize > maxTotalBytes)
+                        {
+                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — total size limit reached");
+                            skipped.Add($"{fileName} (total limit of {_config.MaxTotalAttachmentsMB} MB would be exceeded)");
+                            continue;
+                        }
+
+                        // Base64 grows data by 4/3: stop before the encoded attachments alone exceed the payload limit,
+                        // instead of building the whole JSON and rejecting it afterwards.
+                        long encodedSize = (fileSize + 2) / 3 * 4;
+                        if (totalEncodedBytes + encodedSize > maxEncodedBytes)
+                        {
+                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — payload limit would be exceeded");
+                            skipped.Add($"{fileName} (request size limit of {_config.MaxPayloadSizeMB} MB would be exceeded)");
+                            continue;
+                        }
+
                         byte[] bytes = File.ReadAllBytes(tempPath);
                         string base64 = Convert.ToBase64String(bytes);
+                        totalEncodedBytes += base64.Length;
 
                         // Determine MIME type from extension
                         string mimeType = GetMimeType(fileName);
