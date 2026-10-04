@@ -7,14 +7,18 @@ Accessible only to users with role == 'ADMIN'.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from nicegui import ui, app, run
 
-from src.config import BASE_DIR, INBOX_DIR, ARCHIVE_DIR, COLLECTION_NAME, DB_PATH
+from src.config import BASE_DIR, INBOX_DIR, ARCHIVE_DIR, COLLECTION_NAME, DB_PATH, INGEST_TIMEOUT_SEC
 from src.logger import server_log as slog
+
+_ingestion_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -65,24 +69,48 @@ def _run_ingestion(target_path: str | None = None) -> str:
     """Run the ingestion pipeline as a subprocess.
 
     If target_path is given, copy that single file to INBOX_DIR first.
-    Returns stdout+stderr output for display.
+    Returns stdout+stderr output for display. Only one run at a time: concurrent
+    ingest.py processes would write to the same ChromaDB/BM25 stores.
     """
-    # If re-ingesting a single file, copy it back to inbox
-    if target_path:
-        src = Path(target_path).resolve()
-        if not src.is_relative_to(ARCHIVE_DIR.resolve()):
-            raise ValueError(f"Path traversal rejected: {target_path!r}")
-        if src.exists():
-            import shutil
-            INBOX_DIR.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(src), str(INBOX_DIR / src.name))
+    if not _ingestion_lock.acquire(blocking=False):
+        return "An ingestion is already running. Try again when it has finished."
+    try:
+        # If re-ingesting a single file, copy it back to inbox
+        if target_path:
+            src = Path(target_path).resolve()
+            if not src.is_relative_to(ARCHIVE_DIR.resolve()):
+                raise ValueError(f"Path traversal rejected: {target_path!r}")
+            if src.exists():
+                import shutil
+                INBOX_DIR.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(src), str(INBOX_DIR / src.name))
 
-    result = subprocess.run(
-        [sys.executable, str(BASE_DIR / "ingest.py")],
-        capture_output=True, text=True, timeout=600,
-        cwd=str(BASE_DIR),
-    )
-    return (result.stdout + "\n" + result.stderr).strip()
+        try:
+            result = subprocess.run(
+                [sys.executable, str(BASE_DIR / "ingest.py")],
+                capture_output=True, text=True, timeout=INGEST_TIMEOUT_SEC,
+                cwd=str(BASE_DIR), **_low_priority_kwargs(),
+            )
+        except subprocess.TimeoutExpired as e:
+            slog.warning(f"Admin ingestion killed after {INGEST_TIMEOUT_SEC}s timeout")
+            partial = "\n".join(_as_text(s) for s in (e.stdout, e.stderr) if s).strip()
+            return (f"Ingestion stopped: exceeded the {INGEST_TIMEOUT_SEC}s timeout "
+                    f"(INGEST_TIMEOUT_SEC). Files not yet processed remain in data_nuovi/.\n\n"
+                    f"{partial}").strip()
+        return (result.stdout + "\n" + result.stderr).strip()
+    finally:
+        _ingestion_lock.release()
+
+
+def _low_priority_kwargs() -> dict:
+    # Keep the web server responsive while ingestion (OCR, embeddings) saturates the CPU.
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.BELOW_NORMAL_PRIORITY_CLASS}
+    return {"preexec_fn": lambda: os.nice(10)}
+
+
+def _as_text(data: str | bytes) -> str:
+    return data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
 
 
 # ---------------------------------------------------------------------------

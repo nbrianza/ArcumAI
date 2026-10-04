@@ -83,6 +83,12 @@ value stops startup with `ValueError: Invalid config: NAME=value ...`. Ranges ar
 | `PENDING_RESULT_TTL_HOURS` | int | `48` | Time-to-live for cached pending results (1-8760 hours) |
 | `PENDING_RESULTS_DIR` | string | `temp/pending_results` | Directory path for pending result storage |
 
+### Admin Ingestion
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `INGEST_TIMEOUT_SEC` | int | `600` | Max runtime of an ingestion started from `/admin` (60-86400 s). The process runs at below-normal priority and only one run is allowed at a time. |
+
 ### Implicit / Set by Code
 
 | Variable | Type | Value | Description |
