@@ -58,3 +58,40 @@ def test_vsto_email_looks_like_email():
 def test_pending_result_ttl_is_positive():
     from src.config import PENDING_RESULT_TTL_HOURS
     assert isinstance(PENDING_RESULT_TTL_HOURS, int) and PENDING_RESULT_TTL_HOURS > 0
+
+
+def test_env_int_accepts_value_in_range(monkeypatch):
+    from src.config import _env_int
+    monkeypatch.setenv("ARCUM_TEST_INT", "42")
+    assert _env_int("ARCUM_TEST_INT", "1", 1, 100) == 42
+
+
+def test_env_int_uses_default_when_unset(monkeypatch):
+    from src.config import _env_int
+    monkeypatch.delenv("ARCUM_TEST_INT", raising=False)
+    assert _env_int("ARCUM_TEST_INT", "7", 1, 100) == 7
+
+
+def test_env_int_rejects_out_of_range(monkeypatch):
+    import pytest
+    from src.config import _env_int
+    for bad in ("-1", "0", "999999999"):
+        monkeypatch.setenv("ARCUM_TEST_INT", bad)
+        with pytest.raises(ValueError, match="ARCUM_TEST_INT"):
+            _env_int("ARCUM_TEST_INT", "1", 1, 100)
+
+
+def test_env_int_rejects_non_numeric(monkeypatch):
+    import pytest
+    from src.config import _env_int
+    monkeypatch.setenv("ARCUM_TEST_INT", "abc")
+    with pytest.raises(ValueError, match="not a valid int"):
+        _env_int("ARCUM_TEST_INT", "1", 1, 100)
+
+
+def test_env_float_rejects_out_of_range(monkeypatch):
+    import pytest
+    from src.config import _env_float
+    monkeypatch.setenv("ARCUM_TEST_FLOAT", "1.5")
+    with pytest.raises(ValueError, match="out of range"):
+        _env_float("ARCUM_TEST_FLOAT", "0.5", 0.0, 1.0)
