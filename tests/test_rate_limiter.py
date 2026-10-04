@@ -72,3 +72,30 @@ def test_check_rate_limit_resets_after_window_expires():
     # Plant stale timestamps outside the window
     rate_limiter._user_timestamps[user] = [time.time() - RATE_LIMIT_WINDOW - 10] * RATE_LIMIT_MESSAGES
     assert rate_limiter._check_rate_limit(user) is True
+
+
+def test_check_rate_limit_concurrent_cleanup_is_safe(monkeypatch):
+    import threading
+    from src.ui import rate_limiter
+    from src.config import RATE_LIMIT_MESSAGES
+
+    monkeypatch.setattr(rate_limiter, "RATE_LIMIT_CLEANUP_INT", -1)
+    monkeypatch.setattr(rate_limiter, "RATE_LIMIT_STALE_TTL", -1)
+    errors = []
+
+    def worker(i):
+        try:
+            for _ in range(200):
+                rate_limiter._check_rate_limit(f"concurrent_{i}")
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    for i in range(8):
+        assert len(rate_limiter._user_timestamps.get(f"concurrent_{i}", [])) <= RATE_LIMIT_MESSAGES

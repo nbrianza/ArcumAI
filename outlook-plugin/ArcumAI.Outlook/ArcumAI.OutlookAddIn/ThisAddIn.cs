@@ -22,7 +22,6 @@ namespace ArcumAI.OutlookAddIn
         private bool _isShuttingDown;
         private System.Timers.Timer _heartbeatTimer;
         private VirtualLoopbackHandler _loopbackHandler;
-        private OutlookDataProvider _dataProvider;
         private IPluginLogger _logger;
         private string _pendingIdentifyId;          // tracks the in-flight client/identify request
         private SynchronizationContext _syncContext; // captured on STA thread at startup
@@ -71,7 +70,6 @@ namespace ArcumAI.OutlookAddIn
             // 4. Setup Virtual Loopback
             _loopbackHandler = new VirtualLoopbackHandler(
                 this.Application, _transport, _config, _logger.Log);
-            _dataProvider = new OutlookDataProvider(this.Application, _config, _logger.Log);
 
             if (_config.EnableVirtualLoopback)
             {
@@ -99,6 +97,7 @@ namespace ArcumAI.OutlookAddIn
 
                 await SendIdentify();
                 StartHeartbeat();
+                _loopbackHandler?.RearmPendingTimeouts();
             }
             catch (Exception ex)
             {
@@ -222,21 +221,23 @@ namespace ArcumAI.OutlookAddIn
             _logger.Log("INFO", $"Config sync received from server ({cfg.Count} keys)");
 
             // Update _config properties — safe from any thread (simple value/reference writes)
-            int applied = 0;
-            if (cfg["max_attachment_size_mb"] != null)       { _config.MaxAttachmentSizeMB        = cfg.Value<int>("max_attachment_size_mb");    applied++; }
-            if (cfg["max_total_attachments_mb"] != null)     { _config.MaxTotalAttachmentsMB      = cfg.Value<int>("max_total_attachments_mb");  applied++; }
-            if (cfg["max_payload_size_mb"] != null)          { _config.MaxPayloadSizeMB           = cfg.Value<int>("max_payload_size_mb");        applied++; }
-            if (cfg["arcumai_email"] != null)                { _config.ArcumAIEmailAddress        = cfg.Value<string>("arcumai_email");          applied++; }
-            if (cfg["arcumai_display_name"] != null)         { _config.ArcumAIDisplayName         = cfg.Value<string>("arcumai_display_name");   applied++; }
-            if (cfg["loopback_timeout_ms"] != null)          { _config.LoopbackTimeoutMs          = cfg.Value<int>("loopback_timeout_ms");       applied++; }
-            if (cfg["enable_virtual_loopback"] != null)      { _config.EnableVirtualLoopback      = cfg.Value<bool>("enable_virtual_loopback");  applied++; }
-            if (cfg["show_processing_notification"] != null) { _config.ShowProcessingNotification = cfg.Value<bool>("show_processing_notification"); applied++; }
+            int applied = PluginConfigLoader.ApplyServerValues(_config, cfg);
             Thread.MemoryBarrier(); // ensure all config writes are visible to the STA thread before it reads them
 
             if (!_config.Validate(out string syncValidationError))
                 _logger.Log("WARNING", $"Config sync produced invalid configuration: {syncValidationError}");
 
-            int total = 8;
+            // Persist so the next Outlook start uses these values before the server is reachable.
+            try
+            {
+                PluginConfigLoader.SaveServerConfigCache(cfg);
+            }
+            catch (Exception ex)
+            {
+                _logger.Log("WARNING", $"Could not persist server config: {ex.Message}");
+            }
+
+            int total = PluginConfigLoader.ServerManagedKeyCount;
             _logger.Log(applied == total ? "INFO" : "WARNING",
                 $"Config sync applied: {applied}/{total} keys — " +
                 $"MaxAttachment={_config.MaxAttachmentSizeMB}MB, " +
@@ -362,6 +363,17 @@ namespace ArcumAI.OutlookAddIn
                 string method = (string)request["method"];
                 string id = (string)request["id"];
 
+                // First ack proves this server answers heartbeats: from now on, silence means a dead server.
+                if (method == "heartbeat/ack")
+                {
+                    if (_config.HeartbeatIntervalMs > 0 && _transport.InactivityTimeoutMs == 0)
+                    {
+                        _transport.InactivityTimeoutMs = _config.HeartbeatIntervalMs * 3;
+                        _logger.Log("DEBUG", $"Server acks heartbeats — receive inactivity timeout set to {_transport.InactivityTimeoutMs} ms");
+                    }
+                    return;
+                }
+
                 // Handle virtual_loopback/response (push notification, no id)
                 if (method == "virtual_loopback/response")
                 {
@@ -385,55 +397,26 @@ namespace ArcumAI.OutlookAddIn
                 // These have no "method" field; nothing to dispatch.
                 if (string.IsNullOrEmpty(method)) return;
 
-                object resultData = null;
-                string errorMsg = null;
-
-                if (method == "tools/call")
-                {
-                    JObject paramsObj = request["params"] as JObject;
-                    if (paramsObj == null)
-                    {
-                        errorMsg = "tools/call request is missing 'params' field.";
-                        _logger.Log("WARNING", errorMsg);
-                        // fall through to send error response
-                    }
-                    else
-                    {
-                        string toolName = (string)paramsObj["name"];
-                        JToken args = paramsObj["arguments"];
-
-                        _logger.Log("INFO", $"Executing tool: {toolName}");
-
-                        if (toolName == "search_emails")
-                        {
-                            string query = (string)args["query"] ?? "";
-                            resultData = _dataProvider.GetEmails(query);
-                        }
-                        else if (toolName == "get_calendar")
-                        {
-                            string filter = (string)args["filter"] ?? "today";
-                            resultData = _dataProvider.GetCalendar(filter);
-                        }
-                        else
-                        {
-                            errorMsg = $"Unknown tool '{toolName}'.";
-                            _logger.Log("WARNING", errorMsg);
-                        }
-                    }
-                }
+                // From here on the server is waiting on this id: always answer, even on failure,
+                // otherwise it blocks until its bridge timeout.
                 var response = new JObject
                 {
                     ["jsonrpc"] = "2.0",
-                    ["id"] = id
+                    ["id"] = request["id"]
                 };
-
-                if (errorMsg != null)
+                try
                 {
-                    response["error"] = new JObject { ["code"] = -32601, ["message"] = errorMsg };
+                    response["result"] = ExecuteRequest(method, request["params"]);
                 }
-                else
+                catch (JsonRpcException ex)
                 {
-                    response["result"] = JToken.FromObject(resultData);
+                    _logger.Log("WARNING", $"Rejected request {id}: {ex.Message}");
+                    response["error"] = new JObject { ["code"] = ex.Code, ["message"] = ex.Message };
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log("ERROR", $"Request {id} ({method}) failed: {ex}");
+                    response["error"] = new JObject { ["code"] = JsonRpcException.InternalError, ["message"] = $"Internal error: {ex.Message}" };
                 }
 
                 string responseJson = response.ToString(Formatting.None);
@@ -443,6 +426,60 @@ namespace ArcumAI.OutlookAddIn
             catch (Exception ex)
             {
                 _logger.Log("ERROR", $"Error handling message: {ex}");
+            }
+        }
+
+        private JToken ExecuteRequest(string method, JToken paramsToken)
+        {
+            if (method != "tools/call")
+                throw new JsonRpcException(JsonRpcException.MethodNotFound, $"Method '{method}' not found.");
+
+            if (!(paramsToken is JObject paramsObj))
+                throw new JsonRpcException(JsonRpcException.InvalidParams, "tools/call request is missing the 'params' object.");
+
+            string toolName = GetStringArg(paramsObj, "name", null);
+            if (string.IsNullOrEmpty(toolName))
+                throw new JsonRpcException(JsonRpcException.InvalidParams, "tools/call request is missing 'params.name'.");
+
+            JToken argsToken = paramsObj["arguments"];
+            if (argsToken != null && argsToken.Type != JTokenType.Null && !(argsToken is JObject))
+                throw new JsonRpcException(JsonRpcException.InvalidParams, "'params.arguments' must be an object.");
+            var args = argsToken as JObject ?? new JObject();
+
+            _logger.Log("INFO", $"Executing tool: {toolName}");
+            var dataProvider = new OutlookDataProvider(this.Application, _config, _logger.Log);
+
+            switch (toolName)
+            {
+                case "search_emails":
+                    return JToken.FromObject(dataProvider.GetEmails(GetStringArg(args, "query", "")));
+                case "get_calendar":
+                    return JToken.FromObject(dataProvider.GetCalendar(GetStringArg(args, "filter", "today")));
+                default:
+                    throw new JsonRpcException(JsonRpcException.MethodNotFound, $"Unknown tool '{toolName}'.");
+            }
+        }
+
+        private static string GetStringArg(JObject obj, string key, string fallback)
+        {
+            JToken token = obj[key];
+            if (token == null || token.Type == JTokenType.Null) return fallback;
+            if (token.Type != JTokenType.String)
+                throw new JsonRpcException(JsonRpcException.InvalidParams, $"'{key}' must be a string.");
+            return (string)token;
+        }
+
+        private sealed class JsonRpcException : Exception
+        {
+            public const int InvalidParams = -32602;
+            public const int MethodNotFound = -32601;
+            public const int InternalError = -32603;
+
+            public int Code { get; }
+
+            public JsonRpcException(int code, string message) : base(message)
+            {
+                Code = code;
             }
         }
 

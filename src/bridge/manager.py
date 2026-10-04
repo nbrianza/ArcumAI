@@ -144,6 +144,10 @@ class OutlookBridgeManager:
             # Skip verbose logging for heartbeats
             if data.get("method") == "heartbeat":
                 log.debug(f"Heartbeat from {user_id}")
+                # The ack lets the plugin detect a server that keeps the socket open but stops responding.
+                ws = self.active_connections.get(user_id)
+                if ws:
+                    await ws.send_text(json.dumps({"method": "heartbeat/ack"}))
                 return
 
             # RX logging (truncate large messages with attachments)

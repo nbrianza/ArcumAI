@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- GitHub Actions workflow (`.github/workflows/tests.yml`): pytest suite and Outlook add-in compile on every push and PR
+- `requirements-dev.txt` (pytest); `INGEST_TIMEOUT_SEC` env var for admin-triggered ingestion
+- Server answers plugin heartbeats with `heartbeat/ack`; the plugin uses it to detect a silent server (#20)
+
+### Changed
+
+- Numeric env vars are range-checked at startup and fail fast with a clear message (#27)
+- Admin ingestion: one run at a time, below-normal priority, timeout reported instead of raised (#29)
+- Plugin persists server-pushed config in `%APPDATA%\ArcumAI\Outlook\server-config.json` (#25)
+- Plugin MAPI property URIs moved to `Core/MapiProperties.cs` (#31); `OutlookDataProvider` created per call (#30)
+
+### Fixed
+
+- **Outlook add-in did not compile on `main`** — unescaped quotes in the config README string (`PluginConfigLoader.cs`)
+- `requirements.txt` was UTF-16 and missing Presidio/spaCy NER packages and models (fresh installs ran without PII masking)
+- Corrupted conversation files no longer crash history loading (#26)
+- Rate limiter cleanup guarded by a lock (#28)
+- Plugin: large multi-frame WebSocket messages corrupted accented characters at 8 KB boundaries
+- Plugin: every JSON-RPC request gets a response, with proper error codes for invalid params/unknown methods (#22)
+- Plugin: attachment size re-checked on disk and capped by encoded payload size before loading (#21)
+- Plugin: loopback timeouts re-armed after reconnect, so unanswered requests no longer stay pending forever (#24)
+- Plugin: each COM object released independently (#23); removed no-op catch/rethrow (#32)
+
+---
+
 ## [1.2.0] — 2026-06-11
 
 ### Added

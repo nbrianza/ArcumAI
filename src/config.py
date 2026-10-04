@@ -8,6 +8,25 @@ from llama_index.llms.ollama import Ollama
 from llama_index.core import Settings
 from llama_index.core.node_parser import SentenceSplitter
 
+def _env_number(name: str, default, cast, lo, hi):
+    raw = os.getenv(name, default)
+    try:
+        value = cast(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid config: {name}={raw!r} is not a valid {cast.__name__}") from None
+    if not (lo <= value <= hi):
+        raise ValueError(f"Invalid config: {name}={value} is out of range [{lo}, {hi}]")
+    return value
+
+
+def _env_int(name: str, default, lo: int, hi: int) -> int:
+    return _env_number(name, default, int, lo, hi)
+
+
+def _env_float(name: str, default, lo: float, hi: float) -> float:
+    return _env_number(name, default, float, lo, hi)
+
+
 # --- 1. HARDWARE PROFILES ---
 # Profile selects defaults; individual values can be overridden via .env
 PROFILE = os.getenv("PROFILE", "LOW_RESOURCE")
@@ -29,12 +48,14 @@ else:  # LOW_RESOURCE (default)
 
 LLM_MODEL_NAME = os.getenv("LLM_MODEL", _defaults["LLM_MODEL"])
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", _defaults["EMBED_MODEL"])
-CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW", _defaults["CONTEXT_WINDOW"]))
-REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", _defaults["REQUEST_TIMEOUT"]))
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", _defaults["CHUNK_SIZE"]))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", _defaults["CHUNK_OVERLAP"]))
-RETRIEVER_TOP_K = int(os.getenv("RETRIEVER_TOP_K", _defaults["RETRIEVER_TOP_K"]))
-FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", _defaults["FINAL_TOP_K"]))
+CONTEXT_WINDOW = _env_int("CONTEXT_WINDOW", _defaults["CONTEXT_WINDOW"], 512, 1_048_576)
+REQUEST_TIMEOUT = _env_float("REQUEST_TIMEOUT", _defaults["REQUEST_TIMEOUT"], 1.0, 86_400.0)
+CHUNK_SIZE = _env_int("CHUNK_SIZE", _defaults["CHUNK_SIZE"], 64, 16_384)
+CHUNK_OVERLAP = _env_int("CHUNK_OVERLAP", _defaults["CHUNK_OVERLAP"], 0, 8_192)
+if CHUNK_OVERLAP >= CHUNK_SIZE:
+    raise ValueError(f"Invalid config: CHUNK_OVERLAP ({CHUNK_OVERLAP}) must be smaller than CHUNK_SIZE ({CHUNK_SIZE})")
+RETRIEVER_TOP_K = _env_int("RETRIEVER_TOP_K", _defaults["RETRIEVER_TOP_K"], 1, 500)
+FINAL_TOP_K = _env_int("FINAL_TOP_K", _defaults["FINAL_TOP_K"], 1, 500)
 
 # --- 2. PATHS (Centralized) ---
 BASE_DIR = Path(__file__).parent.parent.resolve()
@@ -108,39 +129,42 @@ USERS_FILE = BASE_DIR / "users.json"
 # --- 8. PROMPT OPTIMIZATION & PRIVACY ---
 PROMPT_OPTIMIZATION = os.getenv("PROMPT_OPTIMIZATION", "local")  # "local" | "gemini" | "off"
 ENABLE_NER_MASKING = os.getenv("ENABLE_NER_MASKING", "true").lower() == "true"
-NER_SCORE_THRESHOLD = float(os.getenv("NER_SCORE_THRESHOLD", "0.35"))  # Low threshold for privacy
-GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "60.0"))
+NER_SCORE_THRESHOLD = _env_float("NER_SCORE_THRESHOLD", "0.35", 0.0, 1.0)  # Low threshold for privacy
+GEMINI_TIMEOUT = _env_float("GEMINI_TIMEOUT", "60.0", 1.0, 3_600.0)
 
 # --- 9. SERVER-PUSHED CLIENT CONFIG ---
 # Sent to clients during the client/identify handshake, keyed by client_type.
 # Each client type has its own set of env vars — add new types here as needed.
 
 # VSTO Outlook plugin
-VSTO_MAX_ATTACHMENT_MB       = int(os.getenv("VSTO_MAX_ATTACHMENT_MB", "25"))
-VSTO_MAX_TOTAL_MB            = int(os.getenv("VSTO_MAX_TOTAL_MB", "50"))
-VSTO_MAX_PAYLOAD_MB          = int(os.getenv("VSTO_MAX_PAYLOAD_MB", "30"))
+VSTO_MAX_ATTACHMENT_MB       = _env_int("VSTO_MAX_ATTACHMENT_MB", "25", 1, 500)
+VSTO_MAX_TOTAL_MB            = _env_int("VSTO_MAX_TOTAL_MB", "50", 1, 1_000)
+VSTO_MAX_PAYLOAD_MB          = _env_int("VSTO_MAX_PAYLOAD_MB", "30", 1, 1_000)
 VSTO_ARCUMAI_EMAIL           = os.getenv("VSTO_ARCUMAI_EMAIL", "assistant@arcumai.ch")
 VSTO_ARCUMAI_DISPLAY_NAME    = os.getenv("VSTO_ARCUMAI_DISPLAY_NAME", "ArcumAI Assistant")
-VSTO_LOOPBACK_TIMEOUT_MS     = int(os.getenv("VSTO_LOOPBACK_TIMEOUT_MS", "3600000"))
+VSTO_LOOPBACK_TIMEOUT_MS     = _env_int("VSTO_LOOPBACK_TIMEOUT_MS", "3600000", 10_000, 86_400_000)
 VSTO_ENABLE_VIRTUAL_LOOPBACK = os.getenv("VSTO_ENABLE_VIRTUAL_LOOPBACK", "true").lower() == "true"
 VSTO_SHOW_NOTIFICATION       = os.getenv("VSTO_SHOW_NOTIFICATION", "true").lower() == "true"
 
 # --- 10a. RATE LIMITING ---
-RATE_LIMIT_MESSAGES    = int(os.getenv("RATE_LIMIT_MESSAGES", "20"))     # max messages per window
-RATE_LIMIT_WINDOW      = int(os.getenv("RATE_LIMIT_WINDOW", "60"))       # window in seconds
-RATE_LIMIT_STALE_TTL   = int(os.getenv("RATE_LIMIT_STALE_TTL", "3600"))  # remove idle users after (seconds)
-RATE_LIMIT_CLEANUP_INT = int(os.getenv("RATE_LIMIT_CLEANUP_INT", "300")) # cleanup interval (seconds)
+RATE_LIMIT_MESSAGES    = _env_int("RATE_LIMIT_MESSAGES", "20", 1, 10_000)       # max messages per window
+RATE_LIMIT_WINDOW      = _env_int("RATE_LIMIT_WINDOW", "60", 1, 86_400)         # window in seconds
+RATE_LIMIT_STALE_TTL   = _env_int("RATE_LIMIT_STALE_TTL", "3600", 1, 604_800)   # remove idle users after (seconds)
+RATE_LIMIT_CLEANUP_INT = _env_int("RATE_LIMIT_CLEANUP_INT", "300", 1, 86_400)   # cleanup interval (seconds)
 
 # WebSocket auth rate limiting (per IP)
-WS_AUTH_MAX_ATTEMPTS   = int(os.getenv("WS_AUTH_MAX_ATTEMPTS", "5"))     # max failed attempts per window
-WS_AUTH_WINDOW         = int(os.getenv("WS_AUTH_WINDOW", "60"))          # window in seconds
-WS_RECEIVE_TIMEOUT     = int(os.getenv("WS_RECEIVE_TIMEOUT", "120"))     # inactivity timeout in seconds (4× heartbeat)
+WS_AUTH_MAX_ATTEMPTS   = _env_int("WS_AUTH_MAX_ATTEMPTS", "5", 1, 1_000)        # max failed attempts per window
+WS_AUTH_WINDOW         = _env_int("WS_AUTH_WINDOW", "60", 1, 86_400)            # window in seconds
+WS_RECEIVE_TIMEOUT     = _env_int("WS_RECEIVE_TIMEOUT", "120", 10, 3_600)       # inactivity timeout in seconds (4× heartbeat)
 WS_API_KEY             = os.getenv("WS_API_KEY", "")                    # shared secret for plugin auth; empty = disabled
 
 # --- 10b. LOOPBACK QUEUE & RESILIENCE ---
-LOOPBACK_MAX_CONCURRENT  = int(os.getenv("LOOPBACK_MAX_CONCURRENT", "3"))
-PENDING_RESULT_TTL_HOURS = int(os.getenv("PENDING_RESULT_TTL_HOURS", "48"))
+LOOPBACK_MAX_CONCURRENT  = _env_int("LOOPBACK_MAX_CONCURRENT", "3", 1, 64)
+PENDING_RESULT_TTL_HOURS = _env_int("PENDING_RESULT_TTL_HOURS", "48", 1, 8_760)
 PENDING_RESULTS_DIR      = os.getenv("PENDING_RESULTS_DIR", "temp/pending_results")
+
+# --- 10c. ADMIN INGESTION ---
+INGEST_TIMEOUT_SEC = _env_int("INGEST_TIMEOUT_SEC", "600", 60, 86_400)
 
 # --- 10. DYNAMIC INTELLIGENCE (SYSTEM PROMPTS) ---
 

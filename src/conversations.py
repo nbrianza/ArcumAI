@@ -105,7 +105,21 @@ class ConversationStore:
         path = self._conv_path(username, conv_id)
         if not path.exists():
             return None
-        return self._read_json(path)
+        data = self._read_json(path)
+        if not isinstance(data, dict):
+            return None
+        raw = data.get("messages")
+        messages = [
+            m for m in (raw if isinstance(raw, list) else [])
+            if isinstance(m, dict)
+            and m.get("role") in ("user", "assistant")
+            and isinstance(m.get("content"), str)
+        ]
+        dropped = (len(raw) if isinstance(raw, list) else 0) - len(messages)
+        if dropped:
+            log.warning(f"[{username}] Skipped {dropped} malformed message(s) in conversation {conv_id}")
+        data["messages"] = messages
+        return data
 
     def append_message(self, username: str, conv_id: str,
                        role: str, content: str) -> None:

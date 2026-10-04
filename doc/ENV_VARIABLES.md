@@ -8,6 +8,9 @@ Complete list of all `.env` variables and C# configuration keys used by ArcumAI.
 
 The `.env` file is loaded in `main_nice.py` via `load_dotenv()` **before** any `src.*` imports.
 
+Numeric variables are range-checked in `src/config.py` at import time: a non-numeric or out-of-range
+value stops startup with `ValueError: Invalid config: NAME=value ...`. Ranges are listed below.
+
 ### Server & Authentication
 
 | Variable | Type | Default | Description |
@@ -15,8 +18,7 @@ The `.env` file is loaded in `main_nice.py` via `load_dotenv()` **before** any `
 | `HOST` | string | `0.0.0.0` | Server bind address |
 | `PORT` | int | `8080` | Server port |
 | `ALLOWED_ORIGINS` | string (csv) | `http://localhost:8080` | Comma-separated CORS allowed origins |
-| `STORAGE_SECRET` | string | `CHIAVE_SEGRETA_ARCUM_AI_V2_DEV_DEFAULT` | NiceGUI session storage secret |
-| `CHAINLIT_AUTH_SECRET` | string | *(required)* | Chainlit authentication secret |
+| `STORAGE_SECRET` | string | *(required; ephemeral random value when `ARCUMAI_ENV=dev`)* | NiceGUI session storage secret |
 
 ### Hardware Profile & LLM
 
@@ -25,17 +27,17 @@ The `.env` file is loaded in `main_nice.py` via `load_dotenv()` **before** any `
 | `PROFILE` | string | `LOW_RESOURCE` | `HIGH_RESOURCE`, `LOW_RESOURCE` | Hardware profile selector; controls LLM defaults |
 | `LLM_MODEL` | string | High: `llama3.3:70b`, Low: `llama3.2:3b` | Any Ollama model name | LLM model name |
 | `EMBED_MODEL` | string | `BAAI/bge-m3` | Any HuggingFace embedding model | Embedding model name |
-| `CONTEXT_WINDOW` | int | High: `16384`, Low: `4096` | Any positive int | Context window size |
-| `REQUEST_TIMEOUT` | float | High: `120.0`, Low: `3600.0` | Any positive float (seconds) | Request timeout in seconds |
+| `CONTEXT_WINDOW` | int | High: `16384`, Low: `4096` | `512` - `1048576` | Context window size |
+| `REQUEST_TIMEOUT` | float | High: `120.0`, Low: `3600.0` | `1` - `86400` (seconds) | Request timeout in seconds |
 
 ### RAG / Text Chunking
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `CHUNK_SIZE` | int | High: `1024`, Low: `512` | Text chunk size for embeddings |
-| `CHUNK_OVERLAP` | int | High: `128`, Low: `64` | Chunk overlap for text splitting |
-| `RETRIEVER_TOP_K` | int | High: `20`, Low: `10` | Number of top results from retriever |
-| `FINAL_TOP_K` | int | High: `10`, Low: `5` | Final number of reranked results |
+| Variable | Type | Default | Allowed Values | Description |
+|----------|------|---------|----------------|-------------|
+| `CHUNK_SIZE` | int | High: `1024`, Low: `512` | `64` - `16384` | Text chunk size for embeddings |
+| `CHUNK_OVERLAP` | int | High: `128`, Low: `64` | `0` - `8192`, and < `CHUNK_SIZE` | Chunk overlap for text splitting |
+| `RETRIEVER_TOP_K` | int | High: `20`, Low: `10` | `1` - `500` | Number of top results from retriever |
+| `FINAL_TOP_K` | int | High: `10`, Low: `5` | `1` - `500` | Final number of reranked results |
 
 ### AI Services & Prompt Optimization
 
@@ -43,7 +45,7 @@ The `.env` file is loaded in `main_nice.py` via `load_dotenv()` **before** any `
 |----------|------|---------|----------------|-------------|
 | `GOOGLE_API_KEY` | string | *(required for cloud/gemini)* | Valid API key | Google Gemini API key; used by cloud engine and Gemini prompt optimization |
 | `PROMPT_OPTIMIZATION` | string | `local` | `local`, `gemini`, `off` | Prompt optimization mode |
-| `GEMINI_TIMEOUT` | float | `60.0` | Any positive float (seconds) | Gemini API call timeout |
+| `GEMINI_TIMEOUT` | float | `60.0` | `1` - `3600` (seconds) | Gemini API call timeout |
 
 ### Privacy / NER Masking
 
@@ -64,10 +66,10 @@ The `.env` file is loaded in `main_nice.py` via `load_dotenv()` **before** any `
 |----------|------|---------|-------------|
 | `BRIDGE_TIMEOUT` | float | `60.0` | Outlook WebSocket bridge timeout (seconds) |
 | `LOOPBACK_TIMEOUT` | float | `3600.0` | Loopback email processing timeout (seconds) |
-| `LOOPBACK_MAX_CONCURRENT` | int | `3` | Max concurrent loopback emails |
-| `VSTO_MAX_ATTACHMENT_MB` | int | `25` | Max single attachment size (1-100 MB) |
-| `VSTO_MAX_TOTAL_MB` | int | `50` | Max total attachment size (1-200 MB) |
-| `VSTO_MAX_PAYLOAD_MB` | int | `30` | Max payload size per request (MB) |
+| `LOOPBACK_MAX_CONCURRENT` | int | `3` | Max concurrent loopback emails (1-64) |
+| `VSTO_MAX_ATTACHMENT_MB` | int | `25` | Max single attachment size (1-500 MB) |
+| `VSTO_MAX_TOTAL_MB` | int | `50` | Max total attachment size (1-1000 MB) |
+| `VSTO_MAX_PAYLOAD_MB` | int | `30` | Max payload size per request (1-1000 MB) |
 | `VSTO_ARCUMAI_EMAIL` | string | `assistant@arcumai.ch` | Email address for loopback replies |
 | `VSTO_ARCUMAI_DISPLAY_NAME` | string | `ArcumAI Assistant` | Display name for loopback sender |
 | `VSTO_LOOPBACK_TIMEOUT_MS` | int | `3600000` | Loopback timeout in milliseconds |
@@ -78,8 +80,14 @@ The `.env` file is loaded in `main_nice.py` via `load_dotenv()` **before** any `
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `PENDING_RESULT_TTL_HOURS` | int | `48` | Time-to-live for cached pending results (hours) |
+| `PENDING_RESULT_TTL_HOURS` | int | `48` | Time-to-live for cached pending results (1-8760 hours) |
 | `PENDING_RESULTS_DIR` | string | `temp/pending_results` | Directory path for pending result storage |
+
+### Admin Ingestion
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `INGEST_TIMEOUT_SEC` | int | `600` | Max runtime of an ingestion started from `/admin` (60-86400 s). The process runs at below-normal priority and only one run is allowed at a time. |
 
 ### Implicit / Set by Code
 

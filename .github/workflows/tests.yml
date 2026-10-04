@@ -1,0 +1,54 @@
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    # Windows: requirements pin pywin32 and the app targets Windows hosts.
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          ARCUMAI_ENV: dev
+        run: python -m pytest tests/ -v --tb=short
+
+  outlook-addin-compile:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: outlook-plugin/ArcumAI.Outlook
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: msbuild ArcumAI.OutlookAddIn/ArcumAI.OutlookAddIn.csproj -t:restore -p:RestorePackagesConfig=true -p:SolutionDir="$PWD\" -nologo
+
+      # Compile target only: ClickOnce packaging needs the signing certificate, which is not in the repo.
+      # UseOfficeInterop references the Office PIAs instead of COM type libraries (no Outlook on the runner).
+      - name: Compile add-in
+        run: msbuild ArcumAI.OutlookAddIn/ArcumAI.OutlookAddIn.csproj -t:Compile -p:Configuration=Release "-p:DefineConstants=TRACE%3BUseOfficeInterop" -p:SolutionDir="$PWD\" -nologo

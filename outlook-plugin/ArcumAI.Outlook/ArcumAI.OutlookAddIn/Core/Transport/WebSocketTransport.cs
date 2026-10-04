@@ -26,6 +26,13 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
 
         public bool IsConnected => _ws != null && _ws.State == WebSocketState.Open;
 
+        private volatile int _inactivityTimeoutMs;
+        public int InactivityTimeoutMs
+        {
+            get => _inactivityTimeoutMs;
+            set => _inactivityTimeoutMs = Math.Max(0, value);
+        }
+
         public async Task ConnectAsync(string baseUri, string userId)
         {
             // Reset previous connection if it exists
@@ -39,6 +46,7 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             _ws = new ClientWebSocket();
             _cts = new CancellationTokenSource();
             Interlocked.Exchange(ref _disconnectedFired, 0); // reset for new connection
+            InactivityTimeoutMs = 0; // enabled again only once the new server proves it acks heartbeats
 
             string apiKey = PluginConfig.Instance.ApiKey;
             if (!string.IsNullOrEmpty(apiKey))
@@ -66,10 +74,6 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             catch (OperationCanceledException)
             {
                 throw new TimeoutException($"Connection timed out after {PluginConfig.Instance.ConnectionTimeoutMs}ms");
-            }
-            catch (Exception)
-            {
-                throw;
             }
         }
 
@@ -117,9 +121,7 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             {
                 while (IsConnected && !_cts.IsCancellationRequested)
                 {
-                    // No per-receive timeout: the heartbeat (SendAsync failure) detects dead connections.
-                    // A timeout here would false-fire during long AI processing (up to 1 hour).
-                    var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
+                    var result = await ReceiveWithTimeoutAsync(buffer);
 
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
@@ -131,30 +133,34 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
                         break;
                     }
 
-                    // Support messages larger than 8KB (multi-frame)
-                    if (!result.EndOfMessage)
+                    if (result.EndOfMessage)
                     {
-                        var fullMessage = new StringBuilder();
-                        fullMessage.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                        MessageReceived?.Invoke(this, Encoding.UTF8.GetString(buffer, 0, result.Count));
+                        continue;
+                    }
 
+                    // Multi-frame message: decode once at the end, otherwise a multi-byte UTF-8
+                    // character split across two frames is corrupted.
+                    using (var fullMessage = new System.IO.MemoryStream())
+                    {
+                        fullMessage.Write(buffer, 0, result.Count);
                         while (!result.EndOfMessage)
                         {
-                            result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
-                            fullMessage.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                            result = await ReceiveWithTimeoutAsync(buffer);
+                            fullMessage.Write(buffer, 0, result.Count);
                         }
-
-                        MessageReceived?.Invoke(this, fullMessage.ToString());
-                    }
-                    else
-                    {
-                        var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        MessageReceived?.Invoke(this, message);
+                        MessageReceived?.Invoke(this, Encoding.UTF8.GetString(fullMessage.GetBuffer(), 0, (int)fullMessage.Length));
                     }
                 }
             }
             catch (OperationCanceledException)
             {
                 // Voluntary cancellation, not an error
+            }
+            catch (TimeoutException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Receive loop: {ex.Message}");
+                try { _ws.Abort(); } catch { }
             }
             catch (Exception ex)
             {
@@ -165,6 +171,30 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
             // Skip if exit was caused by voluntary cancellation (e.g. ConnectAsync disposed us for reconnect).
             if (!_cts.IsCancellationRequested)
                 FireDisconnected();
+        }
+
+        // Long AI processing does not trip this: the server acks every heartbeat, so data keeps
+        // arriving. The timeout is only active once InactivityTimeoutMs is set (first ack seen).
+        private async Task<WebSocketReceiveResult> ReceiveWithTimeoutAsync(byte[] buffer)
+        {
+            var segment = new ArraySegment<byte>(buffer);
+            int timeoutMs = InactivityTimeoutMs;
+            if (timeoutMs <= 0)
+                return await _ws.ReceiveAsync(segment, _cts.Token);
+
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token))
+            {
+                linked.CancelAfter(timeoutMs);
+                try
+                {
+                    return await _ws.ReceiveAsync(segment, linked.Token);
+                }
+                catch (Exception) when (linked.IsCancellationRequested && !_cts.IsCancellationRequested)
+                {
+                    // ClientWebSocket may surface the cancellation as OperationCanceledException or WebSocketException
+                    throw new TimeoutException($"No data from server for {timeoutMs} ms — treating connection as dead");
+                }
+            }
         }
     }
 }
