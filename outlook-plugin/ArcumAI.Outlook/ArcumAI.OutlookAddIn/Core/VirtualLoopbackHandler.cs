@@ -359,31 +359,7 @@ namespace ArcumAI.OutlookAddIn.Core
                         $"Processing: \"{subject}\"...");
                 }
 
-                // Start timeout timer — cancelled on disconnect so no false timeout email is
-                // injected when the server keeps processing and delivers on reconnect.
-                var sessionToken = _sessionCts.Token;
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await Task.Delay(_config.LoopbackTimeoutMs, sessionToken);
-                        if (_pendingRequests.TryRemove(requestId, out var req))
-                        {
-                            _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
-                            _mailFactory.InjectResponseOnMainThread(_mailFactory.CreateTimeoutResponse(req), req);
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Disconnect cancelled the timer — server is still processing and will
-                        // deliver results on reconnect via the pending_results system.
-                        _logAction("DEBUG", $"VirtualLoopback: Timeout cancelled for {requestId} (disconnect)");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logAction("ERROR", $"VirtualLoopback: Timeout handler error for {requestId}: {ex.Message}");
-                    }
-                });
+                StartTimeout(requestId, _config.LoopbackTimeoutMs);
             }
             catch (Exception ex)
             {
@@ -391,6 +367,56 @@ namespace ArcumAI.OutlookAddIn.Core
                 _pendingRequests.TryRemove(requestId, out _);
             }
         }
+
+        // Timers are cancelled on disconnect (no false timeout emails while the server keeps
+        // processing) and re-armed by RearmPendingTimeouts after reconnect.
+        private void StartTimeout(string requestId, int delayMs)
+        {
+            var sessionToken = _sessionCts.Token;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(delayMs, sessionToken);
+                    if (_pendingRequests.TryRemove(requestId, out var req))
+                    {
+                        _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
+                        _mailFactory.InjectResponseOnMainThread(_mailFactory.CreateTimeoutResponse(req), req);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _logAction("DEBUG", $"VirtualLoopback: Timeout cancelled for {requestId} (disconnect)");
+                }
+                catch (Exception ex)
+                {
+                    _logAction("ERROR", $"VirtualLoopback: Timeout handler error for {requestId}: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Called after a successful (re)connect. Restarts the timeout for every request still
+        /// pending, with its remaining time but at least ReconnectGraceMs so the server can first
+        /// deliver results it completed while the client was offline. Without this, requests the
+        /// server never answers would stay in _pendingRequests forever after a disconnect.
+        /// </summary>
+        public void RearmPendingTimeouts()
+        {
+            var now = DateTime.UtcNow;
+            int count = 0;
+            foreach (var entry in _pendingRequests)
+            {
+                double elapsedMs = (now - entry.Value.SentAt).TotalMilliseconds;
+                int remainingMs = (int)Math.Max(ReconnectGraceMs, _config.LoopbackTimeoutMs - elapsedMs);
+                StartTimeout(entry.Key, remainingMs);
+                count++;
+            }
+            if (count > 0)
+                _logAction("INFO", $"VirtualLoopback: Re-armed timeout for {count} pending request(s) after reconnect");
+        }
+
+        private const int ReconnectGraceMs = 120000;
 
         // ---------------------------------------------------------------
         //  HANDLE SERVER RESPONSE
@@ -428,7 +454,7 @@ namespace ArcumAI.OutlookAddIn.Core
         /// Called when the WebSocket disconnects. Shows a toast if there are pending requests
         /// so the user knows processing is continuing on the server.
         /// Does NOT inject error emails — the server keeps processing and delivers on reconnect.
-        /// The 1-hour timeout timer remains as a safety net if the server also goes down.
+        /// Timeouts are re-armed by RearmPendingTimeouts once the connection is restored.
         /// </summary>
         public void NotifyPendingOnDisconnect()
         {

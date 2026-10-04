@@ -99,6 +99,7 @@ namespace ArcumAI.OutlookAddIn
 
                 await SendIdentify();
                 StartHeartbeat();
+                _loopbackHandler?.RearmPendingTimeouts();
             }
             catch (Exception ex)
             {
