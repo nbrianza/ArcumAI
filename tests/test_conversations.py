@@ -25,6 +25,35 @@ def test_load_conversation_returns_none_for_missing(tmp_path):
     assert store.load_conversation("alice", "nonexistent-id") is None
 
 
+def test_load_conversation_skips_malformed_messages(tmp_path):
+    import json
+    from src.conversations import ConversationStore
+    store = ConversationStore(tmp_path)
+    conv_id = store.create_conversation("alice")
+    path = tmp_path / "alice" / f"{conv_id}.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["messages"] = [
+        {"role": "user", "content": "ok"},
+        {"content": "missing role"},
+        {"role": "assistant"},
+        "not a dict",
+        {"role": "system", "content": "unknown role"},
+        {"role": "assistant", "content": "ok too"},
+    ]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    loaded = store.load_conversation("alice", conv_id)
+    assert [m["content"] for m in loaded["messages"]] == ["ok", "ok too"]
+
+
+def test_load_conversation_returns_none_for_non_dict_file(tmp_path):
+    from src.conversations import ConversationStore
+    store = ConversationStore(tmp_path)
+    (tmp_path / "alice").mkdir()
+    (tmp_path / "alice" / "broken.json").write_text("[1, 2, 3]", encoding="utf-8")
+    assert store.load_conversation("alice", "broken") is None
+
+
 def test_append_message_persists_to_disk(tmp_path):
     from src.conversations import ConversationStore
     store = ConversationStore(tmp_path)
