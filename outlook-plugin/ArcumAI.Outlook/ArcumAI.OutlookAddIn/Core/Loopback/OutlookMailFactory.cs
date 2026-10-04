@@ -52,7 +52,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 try
                 {
                     copy.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x00390040", // PR_CLIENT_SUBMIT_TIME
+                        MapiProperties.ClientSubmitTime,
                         DateTime.Now);
                 }
                 catch (Exception ex)
@@ -78,25 +78,25 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                         if (!string.IsNullOrEmpty(displayName))
                         {
                             copy.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x0042001F", // PR_SENT_REPRESENTING_NAME
+                                MapiProperties.SentRepresentingName,
                                 displayName);
                             copy.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x0C1A001F", // PR_SENDER_NAME
+                                MapiProperties.SenderName,
                                 displayName);
                         }
                         if (!string.IsNullOrEmpty(smtpAddress))
                         {
                             copy.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x0065001F", // PR_SENT_REPRESENTING_EMAIL_ADDRESS
+                                MapiProperties.SentRepresentingEmailAddress,
                                 smtpAddress);
                             copy.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x0C1F001F", // PR_SENDER_EMAIL_ADDRESS
+                                MapiProperties.SenderEmailAddress,
                                 smtpAddress);
                             copy.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x0064001F", // PR_SENT_REPRESENTING_ADDRTYPE
+                                MapiProperties.SentRepresentingAddrType,
                                 "SMTP");
                             copy.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x0C1E001F", // PR_SENDER_ADDRTYPE
+                                MapiProperties.SenderAddrType,
                                 "SMTP");
                         }
                     }
@@ -297,7 +297,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 try
                 {
                     responseItem.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x0070001F", // PR_CONVERSATION_TOPIC
+                        MapiProperties.ConversationTopic,
                         subject); // bare subject, no "Re:" prefix
                 }
                 catch (Exception ex)
@@ -325,10 +325,10 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 try
                 {
                     responseItem.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x0042001F", // PR_SENT_REPRESENTING_NAME
+                        MapiProperties.SentRepresentingName,
                         _config.ArcumAIDisplayName);
                     responseItem.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x0065001F", // PR_SENT_REPRESENTING_EMAIL_ADDRESS
+                        MapiProperties.SentRepresentingEmailAddress,
                         _config.ArcumAIEmailAddress);
                 }
                 catch (Exception ex)
@@ -340,7 +340,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 try
                 {
                     responseItem.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x0E060040", // PR_MESSAGE_DELIVERY_TIME
+                        MapiProperties.MessageDeliveryTime,
                         DateTime.Now);
                 }
                 catch (Exception ex)
@@ -353,7 +353,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 {
                     string messageId = $"<arcumai-{Guid.NewGuid()}@local>";
                     responseItem.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x1035001F", // PR_INTERNET_MESSAGE_ID
+                        MapiProperties.InternetMessageId,
                         messageId);
                 }
                 catch (Exception ex)
@@ -368,10 +368,10 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                     try
                     {
                         responseItem.PropertyAccessor.SetProperty(
-                            "http://schemas.microsoft.com/mapi/proptag/0x1042001F", // PR_IN_REPLY_TO_ID
+                            MapiProperties.InReplyToId,
                             originalMsgId);
                         responseItem.PropertyAccessor.SetProperty(
-                            "http://schemas.microsoft.com/mapi/proptag/0x1039001F", // PR_INTERNET_REFERENCES
+                            MapiProperties.InternetReferences,
                             originalMsgId);
                     }
                     catch (Exception ex)
@@ -393,7 +393,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                         try
                         {
                             responseItem.PropertyAccessor.SetProperty(
-                                "http://schemas.microsoft.com/mapi/proptag/0x00710102", // PR_CONVERSATION_INDEX
+                                MapiProperties.ConversationIndex,
                                 replyIndex);
                         }
                         catch (Exception ex)

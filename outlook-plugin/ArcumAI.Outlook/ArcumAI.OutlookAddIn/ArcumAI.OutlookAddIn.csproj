@@ -193,6 +193,7 @@
   -->
   <ItemGroup>
     <Compile Include="Core\ComHelper.cs" />
+    <Compile Include="Core\MapiProperties.cs" />
     <Compile Include="Core\Transport\IMcpTransport.cs" />
     <Compile Include="Core\PluginConfig.cs" />
     <Compile Include="Core\VirtualLoopbackHandler.cs" />

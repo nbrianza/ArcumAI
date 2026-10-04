@@ -217,7 +217,7 @@ namespace ArcumAI.OutlookAddIn.Core
                 try
                 {
                     object raw = mail.PropertyAccessor.GetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x00710102"); // PR_CONVERSATION_INDEX
+                        MapiProperties.ConversationIndex);
                     if (raw is byte[] b) conversationIndex = b;
                 }
                 catch (Exception ex)
@@ -231,7 +231,7 @@ namespace ArcumAI.OutlookAddIn.Core
                 try
                 {
                     mail.PropertyAccessor.SetProperty(
-                        "http://schemas.microsoft.com/mapi/proptag/0x1035001F", // PR_INTERNET_MESSAGE_ID
+                        MapiProperties.InternetMessageId,
                         originalMessageId);
                 }
                 catch (Exception ex)

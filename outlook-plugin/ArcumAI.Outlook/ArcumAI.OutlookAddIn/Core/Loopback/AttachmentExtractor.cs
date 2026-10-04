@@ -14,9 +14,6 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
     /// </summary>
     internal class AttachmentExtractor
     {
-        // MAPI property tag for Content-ID (identifies inline/embedded attachments like email signatures)
-        private const string PR_ATTACH_CONTENT_ID = "http://schemas.microsoft.com/mapi/proptag/0x3712001F";
-
         private readonly PluginConfig _config;
         private readonly Action<string, string> _logAction;
 
@@ -61,10 +58,11 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                     {
                         att = attachments[i];
 
-                        // Skip inline attachments (embedded images used in email signatures/body)
+                        // Skip inline attachments (embedded images used in email signatures/body),
+                        // identified by a Content-ID
                         try
                         {
-                            string contentId = att.PropertyAccessor.GetProperty(PR_ATTACH_CONTENT_ID) as string;
+                            string contentId = att.PropertyAccessor.GetProperty(MapiProperties.AttachContentId) as string;
                             if (!string.IsNullOrEmpty(contentId))
                             {
                                 _logAction("DEBUG", $"VirtualLoopback: Skipping inline attachment '{att.FileName}' (Content-ID: {contentId})");
