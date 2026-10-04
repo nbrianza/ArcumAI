@@ -363,6 +363,17 @@ namespace ArcumAI.OutlookAddIn
                 string method = (string)request["method"];
                 string id = (string)request["id"];
 
+                // First ack proves this server answers heartbeats: from now on, silence means a dead server.
+                if (method == "heartbeat/ack")
+                {
+                    if (_config.HeartbeatIntervalMs > 0 && _transport.InactivityTimeoutMs == 0)
+                    {
+                        _transport.InactivityTimeoutMs = _config.HeartbeatIntervalMs * 3;
+                        _logger.Log("DEBUG", $"Server acks heartbeats — receive inactivity timeout set to {_transport.InactivityTimeoutMs} ms");
+                    }
+                    return;
+                }
+
                 // Handle virtual_loopback/response (push notification, no id)
                 if (method == "virtual_loopback/response")
                 {

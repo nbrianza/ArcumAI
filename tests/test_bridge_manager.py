@@ -82,6 +82,16 @@ def test_handle_heartbeat_does_not_raise():
     asyncio.run(run())
 
 
+def test_handle_heartbeat_sends_ack():
+    async def run():
+        mgr = _make_manager()
+        ws = _mock_ws()
+        await mgr.connect(ws, "alice")
+        await mgr.handle_incoming_message("alice", json.dumps({"method": "heartbeat"}))
+        ws.send_text.assert_called_once_with(json.dumps({"method": "heartbeat/ack"}))
+    asyncio.run(run())
+
+
 def test_handle_tool_response_resolves_future():
     async def run():
         mgr = _make_manager()

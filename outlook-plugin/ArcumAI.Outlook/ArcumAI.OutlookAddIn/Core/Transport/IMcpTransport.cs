@@ -23,5 +23,9 @@ namespace ArcumAI.OutlookAddIn.Core.Transport
         Task DisconnectAsync();
 
         bool IsConnected { get; }
+
+        // Max silence (ms) tolerated on the receive side before the connection is treated as dead.
+        // 0 disables the check; reset to 0 on every ConnectAsync.
+        int InactivityTimeoutMs { get; set; }
     }
 }
