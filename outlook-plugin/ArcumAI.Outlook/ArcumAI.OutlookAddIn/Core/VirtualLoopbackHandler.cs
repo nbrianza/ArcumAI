@@ -4,7 +4,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Outlook = Microsoft.Office.Interop.Outlook;
@@ -111,13 +110,13 @@ namespace ArcumAI.OutlookAddIn.Core
                     }
                     finally
                     {
-                        if (recip != null) Marshal.ReleaseComObject(recip);
+                        ComHelper.SafeRelease(recip);
                     }
                 }
             }
             finally
             {
-                if (recipients != null) Marshal.ReleaseComObject(recipients);
+                ComHelper.SafeRelease(recipients);
             }
 
             return (hasArcum, hasReal, ccNames);
@@ -181,14 +180,14 @@ namespace ArcumAI.OutlookAddIn.Core
                     }
                     finally
                     {
-                        if (recip != null) Marshal.ReleaseComObject(recip);
+                        ComHelper.SafeRelease(recip);
                     }
                 }
                 mail.Recipients.ResolveAll();
             }
             finally
             {
-                if (recipients != null) Marshal.ReleaseComObject(recipients);
+                ComHelper.SafeRelease(recipients);
             }
         }
 

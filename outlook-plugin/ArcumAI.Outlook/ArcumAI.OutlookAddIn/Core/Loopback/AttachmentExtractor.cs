@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using Outlook = Microsoft.Office.Interop.Outlook;
 using Newtonsoft.Json.Linq;
 
@@ -153,7 +152,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                     }
                     finally
                     {
-                        if (att != null) Marshal.ReleaseComObject(att);
+                        ComHelper.SafeRelease(att);
                         if (tempPath != null && File.Exists(tempPath))
                         {
                             try { File.Delete(tempPath); } catch { }
@@ -170,7 +169,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
             }
             finally
             {
-                if (attachments != null) Marshal.ReleaseComObject(attachments);
+                ComHelper.SafeRelease(attachments);
             }
 
             return (result, skipped);

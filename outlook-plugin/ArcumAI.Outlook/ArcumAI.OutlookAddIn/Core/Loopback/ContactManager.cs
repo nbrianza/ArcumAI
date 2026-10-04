@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Nicolas Brianza
 // Licensed under the MIT License. See LICENSE file in the project root.
 using System;
-using System.Runtime.InteropServices;
 using Outlook = Microsoft.Office.Interop.Outlook;
 
 namespace ArcumAI.OutlookAddIn.Core.Loopback
@@ -44,7 +43,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 var existing = items.Find(filter);
                 if (existing != null)
                 {
-                    Marshal.ReleaseComObject(existing);
+                    ComHelper.SafeRelease(existing);
                     _logAction("DEBUG", "VirtualLoopback: ArcumAI contact already exists");
                     return;
                 }
@@ -65,7 +64,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 }
                 finally
                 {
-                    if (contact != null) Marshal.ReleaseComObject(contact);
+                    ComHelper.SafeRelease(contact);
                 }
             }
             catch (Exception ex)
@@ -74,8 +73,8 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
             }
             finally
             {
-                if (items != null) Marshal.ReleaseComObject(items);
-                if (contactsFolder != null) Marshal.ReleaseComObject(contactsFolder);
+                ComHelper.SafeRelease(items);
+                ComHelper.SafeRelease(contactsFolder);
             }
         }
     }

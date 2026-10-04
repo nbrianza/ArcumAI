@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using Outlook = Microsoft.Office.Interop.Outlook;
 
 namespace ArcumAI.OutlookAddIn.Core
@@ -66,7 +65,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     }
                     finally
                     {
-                        Marshal.ReleaseComObject(item);
+                        ComHelper.SafeRelease(item);
                     }
                     if (count >= maxResults) break;
                 }
@@ -80,9 +79,9 @@ namespace ArcumAI.OutlookAddIn.Core
             }
             finally
             {
-                if (items != null) Marshal.ReleaseComObject(items);
-                if (inbox != null) Marshal.ReleaseComObject(inbox);
-                if (session != null) Marshal.ReleaseComObject(session);
+                ComHelper.SafeRelease(items);
+                ComHelper.SafeRelease(inbox);
+                ComHelper.SafeRelease(session);
             }
             return results;
         }
@@ -134,7 +133,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     }
                     finally
                     {
-                        Marshal.ReleaseComObject(item);
+                        ComHelper.SafeRelease(item);
                     }
                 }
 
@@ -147,10 +146,10 @@ namespace ArcumAI.OutlookAddIn.Core
             }
             finally
             {
-                if (restrictedItems != null) Marshal.ReleaseComObject(restrictedItems);
-                if (items != null) Marshal.ReleaseComObject(items);
-                if (calendar != null) Marshal.ReleaseComObject(calendar);
-                if (session != null) Marshal.ReleaseComObject(session);
+                ComHelper.SafeRelease(restrictedItems);
+                ComHelper.SafeRelease(items);
+                ComHelper.SafeRelease(calendar);
+                ComHelper.SafeRelease(session);
             }
 
             if (results.Count == 0) results.Add("No appointments found.");
