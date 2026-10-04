@@ -233,8 +233,8 @@ UserId (string): User identifier for authentication
 
 ApiKey (string): Shared secret sent as X-API-Key header on every connection.
   Must match WS_API_KEY on the server (.env).
-  Default: "" (empty — server-side check disabled when server key is also empty)
-  Example: "ApiKey": "change-me-to-a-long-random-string"
+  Default: """" (empty — server-side check disabled when server key is also empty)
+  Example: ""ApiKey"": ""change-me-to-a-long-random-string""
 
 RECONNECTION SETTINGS:
 ---------------------
