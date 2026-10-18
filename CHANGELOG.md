@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `requirements-dev.txt` (pytest); `INGEST_TIMEOUT_SEC` env var for admin-triggered ingestion
 - Server answers plugin heartbeats with `heartbeat/ack`; the plugin uses it to detect a silent server (#20)
 - Web login brute-force protection: after `LOGIN_MAX_ATTEMPTS` (default 6) failures per IP or per username within `LOGIN_WINDOW` (default 60 s) further attempts are blocked and logged (#37)
+- `doc/ENV_VARIABLES.md` documents `RATE_LIMIT_*`, `WS_AUTH_*`, `WS_RECEIVE_TIMEOUT`, `WS_API_KEY`, `TESSERACT_CMD` and `POPPLER_PATH` (#40)
 
 ### Changed
 
