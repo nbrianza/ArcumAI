@@ -141,6 +141,8 @@ python main_nice.py
 
 The web UI will be available at `http://localhost:8080`.
 
+When other machines reach the server over the network, enable TLS (HTTPS and WSS): see [doc/TLS_SETUP.md](doc/TLS_SETUP.md). Without TLS on a non-loopback address the server starts but logs a WARNING.
+
 ### 5. Outlook plugin (optional)
 
 See the [Outlook plugin documentation](doc/VSTO_VIRTUAL_LOOPBACK_PHASE1.md) for build and installation instructions.
@@ -196,6 +198,7 @@ See [tests/TEST_CASES.md](tests/TEST_CASES.md) for a full description of every t
 
 - **Never commit `.env` files** — they contain API keys and secrets
 - **`STORAGE_SECRET` is required** — the server refuses to start without it in production; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+- **Transport encryption**: set `SSL_CERTFILE` and `SSL_KEYFILE`, or run behind a TLS reverse proxy, whenever the server is reachable from other machines; see [doc/TLS_SETUP.md](doc/TLS_SETUP.md). Never commit private keys
 - **Local-first** — by default, all AI processing uses Ollama (no data leaves your machine)
 - **PII masking** — when using cloud APIs, NER-based masking automatically redacts personal data before sending
 - **Authentication** — bcrypt password hashing, per-IP brute-force protection on WebSocket auth, optional shared-secret header
