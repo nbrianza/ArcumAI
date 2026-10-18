@@ -19,6 +19,10 @@ value stops startup with `ValueError: Invalid config: NAME=value ...`. Ranges ar
 | `PORT` | int | `8080` | Server port |
 | `ALLOWED_ORIGINS` | string (csv) | `http://localhost:8080` | Comma-separated CORS allowed origins |
 | `STORAGE_SECRET` | string | *(required; ephemeral random value when `ARCUMAI_ENV=dev`)* | NiceGUI session storage secret |
+| `LOGIN_MAX_ATTEMPTS` | int | `6` | Failed web logins allowed per window, counted per client IP and per username (`1` - `1000`). The next attempt within the window is blocked without checking the password |
+| `LOGIN_WINDOW` | int | `60` | Web login throttling window in seconds (`1` - `86400`). A block ends this many seconds after the last failed attempt |
+
+Note: web login throttling uses the client IP seen by the server. Behind a reverse proxy, or when many clients share one IP (NAT), all of them may count as one IP, so a few failed logins can block everyone at that address for `LOGIN_WINDOW` seconds.
 
 ### Hardware Profile & LLM
 
