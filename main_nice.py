@@ -39,7 +39,9 @@ from src.config import (
     PROMPT_OPTIMIZATION, ENABLE_NER_MASKING,
     WS_RECEIVE_TIMEOUT,
     WS_API_KEY,
+    SSL_CERTFILE, SSL_KEYFILE, TLS_TERMINATED_UPSTREAM,
 )
+from src.tls import build_ssl_kwargs, warn_if_unencrypted
 from src.auth import load_users, verify_password, check_login, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
 from src.logger import server_log as slog
@@ -102,7 +104,7 @@ def _is_valid_outlook_id(user_id: str) -> bool:
 async def outlook_endpoint(websocket: WebSocket, user_id: str):
     """
     Endpoint for the C# plugin to connect to.
-    URL: ws://your-server:8080/ws/outlook/username
+    URL: ws://your-server:8080/ws/outlook/username (wss:// when TLS is enabled)
     """
     client_ip = websocket.client.host if websocket.client else "unknown"
 
@@ -293,10 +295,22 @@ if __name__ in {"__main__", "__mp_main__"}:
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', '8080'))
 
+    # Transport encryption (#38): a half-configured TLS setup stops startup with a
+    # clear ValueError; no TLS on a non-loopback bind only logs a WARNING.
+    ssl_kwargs = build_ssl_kwargs(SSL_CERTFILE, SSL_KEYFILE)
+
     slog.info("Starting Arcum AI")
     slog.info(f"  Profile: {PROFILE} | LLM: {LLM_MODEL_NAME} | Embed: {EMBED_MODEL_NAME}")
     slog.info(f"  Context: {CONTEXT_WINDOW} | Chunk: {CHUNK_SIZE}/{CHUNK_OVERLAP}")
     slog.info(f"  Prompt Optimization: {PROMPT_OPTIMIZATION} | NER Masking: {ENABLE_NER_MASKING}")
     slog.info(f"  Host: {host}:{port}")
+    if ssl_kwargs:
+        slog.info("  Transport: https/wss")
+    elif TLS_TERMINATED_UPSTREAM:
+        slog.info("  Transport: http/ws (TLS terminated upstream)")
+    else:
+        slog.info("  Transport: http/ws")
+    warn_if_unencrypted(host, port, bool(ssl_kwargs), TLS_TERMINATED_UPSTREAM, slog)
 
-    ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False, storage_secret=storage_secret)
+    ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False,
+           storage_secret=storage_secret, **ssl_kwargs)
