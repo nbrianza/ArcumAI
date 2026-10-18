@@ -73,6 +73,41 @@ and per-IP WebSocket brute-force protection.
 
 ---
 
+### `test_login_throttle.py`: Web login brute-force protection, issue #37 (22 tests)
+
+Covers `src.auth.check_login(users_db, username, password, client_ip)`, which returns
+`"ok"`, `"failed"` or `"blocked"`. Synthetic users and IPs only; a fake clock replaces
+`time.time` and `time.monotonic`; logs are captured by replacing `src.auth.slog` and the
+`ArcumServer` handlers (`caplog` does not work because `server_log` has `propagate = False`).
+Not covered: the `try_login()` wiring in `main_nice.py` (client IP capture and UI messages), verified manually.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_login_throttle_constants_exist_and_are_positive_ints` | Settings exist and are positive ints |
+| 2 | `test_criterion1_ip_blocked_after_max_failures_even_with_correct_password` | After `LOGIN_MAX_ATTEMPTS` failures from one IP, the correct password is blocked and not verified |
+| 3 | `test_criterion1_same_user_wrong_passwords_then_correct_is_blocked` | Same, with one user and one IP |
+| 4 | `test_criterion1_attempt_at_limit_is_still_failed_not_blocked` | Attempts 1..N are `failed`, N+1 is `blocked` |
+| 5 | `test_criterion1_blocked_result_does_not_reveal_username_existence` | Known and unknown usernames get the same `blocked` result |
+| 6 | `test_criterion1_other_ip_is_not_affected_by_ip_block` | A different IP can still log in |
+| 7 | `test_criterion2_username_blocked_after_max_failures_from_different_ips` | Per-username block across IPs, password not verified |
+| 8 | `test_criterion2_unknown_username_is_also_counted_per_username` | Unknown usernames are counted too (no existence oracle) |
+| 9 | `test_criterion2_username_block_does_not_affect_other_users` | Another user is unaffected |
+| 10 | `test_criterion3_ip_block_expires_after_window` | IP block ends after `LOGIN_WINDOW` |
+| 11 | `test_criterion3_username_block_expires_after_window` | Username block ends after `LOGIN_WINDOW` |
+| 12 | `test_criterion3_block_still_active_just_before_window_ends` | Still blocked at `LOGIN_WINDOW - 1` |
+| 13 | `test_criterion3_blocked_attempts_do_not_extend_the_block` | Blocked attempts are not recorded |
+| 14 | `test_criterion4_clean_user_succeeds_first_attempt_without_delay` | `ok` on first try, `time.sleep` never called |
+| 15 | `test_criterion4_wrong_password_for_clean_user_is_failed` | Wrong password returns `failed` |
+| 16 | `test_criterion5_success_resets_username_counter` | After success the user again tolerates N failures |
+| 17 | `test_criterion5_success_does_not_reset_ip_counter` | Success does not reset the IP counter |
+| 18 | `test_criterion6_failed_known_user_logs_one_warning_with_ip_user_and_outcome` | One WARNING with IP, `failed` and the known username |
+| 19 | `test_criterion6_blocked_attempt_logs_one_warning_with_ip_and_outcome` | One WARNING per failed and per blocked attempt |
+| 20 | `test_criterion6_successful_login_logs_no_warning` | No WARNING on success |
+| 21 | `test_criterion6_password_never_logged_at_any_level` | No submitted password in any record at any level |
+| 22 | `test_criterion6_unknown_username_not_logged_for_failed_and_blocked` | Unknown submitted username never logged; IP is logged |
+
+---
+
 ### `test_rate_limiter.py` — Input sanitization & per-user rate limiting (9 tests)
 
 Covers `src/ui/rate_limiter.py`: control-character stripping, length capping,
@@ -208,6 +243,10 @@ Covers `src/config.py`: type safety and sanity checks for all critical constants
 | 8 | `test_model_name_constants_are_nonempty_strings` | `LLM_MODEL_NAME` and `EMBED_MODEL_NAME` are non-empty strings |
 | 9 | `test_vsto_email_looks_like_email` | `VSTO_ARCUMAI_EMAIL` contains `@` |
 | 10 | `test_pending_result_ttl_is_positive` | `PENDING_RESULT_TTL_HOURS` is a positive integer |
+| 11 | `test_login_throttle_constants_are_positive_ints` | `LOGIN_MAX_ATTEMPTS` and `LOGIN_WINDOW` are positive integers (issue #37) |
+| 12 | `test_login_throttle_defaults_are_6_attempts_per_60_seconds` | Without env overrides the defaults are 6 attempts and 60 seconds (fresh interpreter) |
+| 13 | `test_login_throttle_valid_override_is_applied` | In-range env values are applied |
+| 14 | `test_criterion7_out_of_range_login_settings_stop_startup_with_clear_error` | `0`, `-1` and above-maximum values for either setting raise `ValueError` naming the variable and "out of range" at import (fresh interpreter, one subprocess for all cases) |
 
 ---
 
