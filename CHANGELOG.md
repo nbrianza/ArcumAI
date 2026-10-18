@@ -38,6 +38,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin: loopback timeouts re-armed after reconnect, so unanswered requests no longer stay pending forever (#24)
 - Plugin: each COM object released independently (#23); removed no-op catch/rethrow (#32)
 - Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
+- Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
 
 ---
 
