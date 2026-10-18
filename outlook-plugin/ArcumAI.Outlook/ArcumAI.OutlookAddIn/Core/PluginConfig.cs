@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nicolas Brianza
 // Licensed under the MIT License. See LICENSE file in the project root.
 using System;
+using System.Net;
 using Newtonsoft.Json;
 
 namespace ArcumAI.OutlookAddIn.Core
@@ -116,7 +117,7 @@ namespace ArcumAI.OutlookAddIn.Core
                 return false;
             }
 
-            bool isLocalhost = ServerUrl.Contains("localhost") || ServerUrl.Contains("127.0.0.1");
+            bool isLocalhost = IsLoopbackServerUrl(ServerUrl);
             if (!UseSecureConnection && !isLocalhost)
             {
                 errorMessage = "UseSecureConnection must be true for non-localhost connections";
@@ -180,6 +181,23 @@ namespace ArcumAI.OutlookAddIn.Core
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// True only if the parsed host of the URL is exactly "localhost" or a loopback
+        /// IP address (127.x.x.x, [::1]). Host names that merely contain "localhost" or
+        /// "127.0.0.1" (for example localhost.example.test) and unparsable URLs are not local.
+        /// </summary>
+        private static bool IsLoopbackServerUrl(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+                return false;
+
+            string host = uri.DnsSafeHost;
+            if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return IPAddress.TryParse(host, out IPAddress ip) && IPAddress.IsLoopback(ip);
         }
 
         /// <summary>
