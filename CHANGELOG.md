@@ -21,6 +21,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin persists server-pushed config in `%APPDATA%\ArcumAI\Outlook\server-config.json` (#25)
 - Plugin MAPI property URIs moved to `Core/MapiProperties.cs` (#31); `OutlookDataProvider` created per call (#30)
 
+### Security
+
+- `/documents` (archive downloads and chat Sources links) now requires login and enforces ownership: ADMIN reads every document, other users only documents under `data_archivio/<username>/` (case-insensitive); files at the archive root or under an unknown folder are ADMIN-only. Denials are logged with reason and IP only. Non-admin users lose access to documents outside their own folder (#36)
+
 ### Fixed
 
 - **Outlook add-in did not compile on `main`** — unescaped quotes in the config README string (`PluginConfigLoader.cs`)
