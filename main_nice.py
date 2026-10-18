@@ -149,12 +149,28 @@ def login_page():
     users_db = load_users()
     client_ip = ui.context.client.ip or "unknown"
 
-    with ui.card().classes('absolute-center w-96 p-8 shadow-2xl border').style('background-color: #2C6672; border-color: #2d5f64'):
+    card_color = '#2C6672'
+    # Browser autofill (Chrome/Edge) paints a light background behind the inputs;
+    # cover it with the card colour and keep the text white (#43).
+    ui.add_css(f'''
+        .arcum-login-field input:-webkit-autofill,
+        .arcum-login-field input:-webkit-autofill:hover,
+        .arcum-login-field input:-webkit-autofill:focus,
+        .arcum-login-field input:-webkit-autofill:active {{
+            -webkit-box-shadow: 0 0 0 1000px {card_color} inset !important;
+            box-shadow: 0 0 0 1000px {card_color} inset !important;
+            -webkit-text-fill-color: #ffffff !important;
+            caret-color: #ffffff;
+            transition: background-color 9999s ease-out 0s;
+        }}
+    ''', shared=False)
+
+    with ui.card().classes('absolute-center w-96 p-8 shadow-2xl border').style(f'background-color: {card_color}; border-color: #2d5f64'):
         ui.image('/assets/newArcumAILogo.PNG').classes('w-48 mx-auto mb-4 object-contain')
         ui.label('Restricted Access').classes('text-xl font-bold text-center w-full mb-4 text-white')
 
-        username = ui.input('Username').classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
-        password = ui.input('Password', password=True).classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
+        username = ui.input('Username').classes('w-full text-white arcum-login-field').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
+        password = ui.input('Password', password=True).classes('w-full text-white arcum-login-field').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
         error_msg = ui.label('').classes('text-red-400 text-sm hidden mt-2 text-center w-full')
 
         def try_login():
