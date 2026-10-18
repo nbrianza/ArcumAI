@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `requirements-dev.txt` (pytest); `INGEST_TIMEOUT_SEC` env var for admin-triggered ingestion
 - Server answers plugin heartbeats with `heartbeat/ack`; the plugin uses it to detect a silent server (#20)
 - Web login brute-force protection: after `LOGIN_MAX_ATTEMPTS` (default 6) failures per IP or per username within `LOGIN_WINDOW` (default 60 s) further attempts are blocked and logged (#37)
+- `doc/ENV_VARIABLES.md` documents `RATE_LIMIT_*`, `WS_AUTH_*`, `WS_RECEIVE_TIMEOUT`, `WS_API_KEY`, `TESSERACT_CMD` and `POPPLER_PATH` (#40)
 - Optional TLS (`SSL_CERTFILE`, `SSL_KEYFILE`, or `TLS_TERMINATED_UPSTREAM` behind a reverse proxy) and a startup WARNING when the server listens on a non-loopback address without TLS; setup guide in `doc/TLS_SETUP.md` (#38)
 
 ### Changed
@@ -21,6 +22,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Admin ingestion: one run at a time, below-normal priority, timeout reported instead of raised (#29)
 - Plugin persists server-pushed config in `%APPDATA%\ArcumAI\Outlook\server-config.json` (#25)
 - Plugin MAPI property URIs moved to `Core/MapiProperties.cs` (#31); `OutlookDataProvider` created per call (#30)
+
+### Security
+
+- `/documents` (archive downloads and chat Sources links) now requires login and enforces ownership: ADMIN reads every document, other users only documents under `data_archivio/<username>/` (case-insensitive); files at the archive root or under an unknown folder are ADMIN-only. Denials are logged with reason and IP only. Non-admin users lose access to documents outside their own folder (#36)
 
 ### Fixed
 
@@ -33,6 +38,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin: attachment size re-checked on disk and capped by encoded payload size before loading (#21)
 - Plugin: loopback timeouts re-armed after reconnect, so unanswered requests no longer stay pending forever (#24)
 - Plugin: each COM object released independently (#23); removed no-op catch/rethrow (#32)
+- Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
 
 ---
