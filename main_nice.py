@@ -40,7 +40,7 @@ from src.config import (
     WS_RECEIVE_TIMEOUT,
     WS_API_KEY,
 )
-from src.auth import load_users, verify_password, ws_auth_is_rate_limited, ws_auth_record_failure
+from src.auth import load_users, verify_password, check_login, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
 from src.logger import server_log as slog
 from src.conversations import ConversationStore
@@ -147,6 +147,7 @@ def login_page():
         return
 
     users_db = load_users()
+    client_ip = ui.context.client.ip or "unknown"
 
     with ui.card().classes('absolute-center w-96 p-8 shadow-2xl border').style('background-color: #2C6672; border-color: #2d5f64'):
         ui.image('/assets/newArcumAILogo.PNG').classes('w-48 mx-auto mb-4 object-contain')
@@ -159,20 +160,22 @@ def login_page():
         def try_login():
             user = username.value
             pwd = password.value
-            if user in users_db:
-                stored_hash = users_db[user].get('pw_hash', '')
-                if verify_password(pwd, stored_hash):
-                    conversation_store.cleanup_empty(user)
-                    app.storage.user.update({
-                        'authenticated': True,
-                        'username': user,
-                        'role': users_db[user].get('role', 'DEFAULT'),
-                        'full_name': users_db[user].get('name', user)
-                    })
-                    ui.notify(f'Welcome {app.storage.user["full_name"]}!', type='positive')
-                    ui.navigate.to('/')
-                    return
-            error_msg.text = 'Invalid credentials'
+            result = check_login(users_db, user, pwd, client_ip)
+            if result == "ok":
+                conversation_store.cleanup_empty(user)
+                app.storage.user.update({
+                    'authenticated': True,
+                    'username': user,
+                    'role': users_db[user].get('role', 'DEFAULT'),
+                    'full_name': users_db[user].get('name', user)
+                })
+                ui.notify(f'Welcome {app.storage.user["full_name"]}!', type='positive')
+                ui.navigate.to('/')
+                return
+            if result == "blocked":
+                error_msg.text = 'Too many failed attempts. Please try again later.'
+            else:
+                error_msg.text = 'Invalid credentials'
             error_msg.classes(remove='hidden')
             ui.notify('Login Error', type='negative')
 
