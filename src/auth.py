@@ -121,6 +121,8 @@ def ws_auth_record_failure(ip: str) -> None:
 _login_failures_ip: dict[str, list[float]] = {}
 _login_failures_user: dict[str, list[float]] = {}
 _login_lock = threading.Lock()
+# Time of the last full sweep of both stores (protected by _login_lock).
+_login_last_sweep: float = 0.0
 
 
 def _recent(store: dict[str, list[float]], key: str, now: float) -> list[float]:
@@ -131,6 +133,19 @@ def _recent(store: dict[str, list[float]], key: str, now: float) -> list[float]:
     else:
         store.pop(key, None)
     return attempts
+
+
+def _sweep_stale(now: float) -> None:
+    """Evicts stale failures for every key in both stores. Caller holds _login_lock.
+
+    Uses the same predicate as the throttle check (_recent), so a failure still
+    inside LOGIN_WINDOW is never removed. Logs nothing.
+    """
+    global _login_last_sweep
+    for store in (_login_failures_ip, _login_failures_user):
+        for key in list(store):
+            _recent(store, key, now)
+    _login_last_sweep = now
 
 
 def check_login(users_db: dict, username: str, password: str, client_ip: str) -> str:
@@ -144,6 +159,11 @@ def check_login(users_db: dict, username: str, password: str, client_ip: str) ->
     user_label = f"'{username}'" if known else "<unknown>"
     with _login_lock:
         now = time.time()
+        # Periodic sweep, at most once per LOGIN_WINDOW, so a failure record is
+        # gone by the first attempt at or after 2 x LOGIN_WINDOW. Also sweeps
+        # immediately if the clock went backwards.
+        if now - _login_last_sweep >= LOGIN_WINDOW or now < _login_last_sweep:
+            _sweep_stale(now)
         if (len(_recent(_login_failures_ip, client_ip, now)) >= LOGIN_MAX_ATTEMPTS
                 or len(_recent(_login_failures_user, username, now)) >= LOGIN_MAX_ATTEMPTS):
             slog.warning(f"Web login blocked (IP: {client_ip}, user: {user_label})")
