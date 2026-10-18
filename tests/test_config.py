@@ -192,3 +192,11 @@ def test_criterion7_out_of_range_login_settings_stop_startup_with_clear_error():
         assert result["ok"] is False, f"{label}: config accepted an out-of-range value"
         assert result["type"] == "ValueError", f"{label}: {result}"
         assert var in result["error"] and "out of range" in result["error"], f"{label}: {result['error']}"
+
+
+def test_tls_settings_have_expected_types():
+    """Issue #38 (D4): TLS settings exist in src.config with the approved names."""
+    from src.config import SSL_CERTFILE, SSL_KEYFILE, TLS_TERMINATED_UPSTREAM
+    assert isinstance(SSL_CERTFILE, str)
+    assert isinstance(SSL_KEYFILE, str)
+    assert isinstance(TLS_TERMINATED_UPSTREAM, bool)
