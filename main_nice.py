@@ -44,6 +44,7 @@ from src.auth import load_users, verify_password, check_login, ws_auth_is_rate_l
 from src.engine import UserSession
 from src.logger import server_log as slog
 from src.conversations import ConversationStore
+from src.documents import router as documents_router
 
 # Import UI Modules (Refactored)
 from src.ui.header import create_header
@@ -71,7 +72,7 @@ def _cleanup_on_shutdown():
 
 # Setup Assets
 if not ARCHIVE_DIR.exists(): ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-app.add_static_files('/documents', str(ARCHIVE_DIR))
+app.include_router(documents_router)  # authenticated, owner-scoped (#36)
 
 ASSETS_DIR = Path("assets")
 if not ASSETS_DIR.exists(): ASSETS_DIR.mkdir()

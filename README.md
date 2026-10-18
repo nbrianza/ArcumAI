@@ -133,6 +133,8 @@ Place documents in the `data_nuovi/` folder, then run:
 python ingest.py
 ```
 
+**Document ownership.** Archived documents are served at `/documents` only to logged-in users. A document belongs to the user whose username matches its first folder under `data_archivio/` (case-insensitive), so drop each user's files into `input_utente/<username>/...`; the folder is carried into the archive. ADMIN users can open every document; other users only their own. Files at the archive root or under a folder that matches no user are ADMIN-only. Usernames must therefore be unique ignoring case. See `doc/decisions/0002-document-ownership-by-archive-folder.md`.
+
 ### 4. Start the server
 
 ```bash
@@ -198,6 +200,7 @@ See [tests/TEST_CASES.md](tests/TEST_CASES.md) for a full description of every t
 - **`STORAGE_SECRET` is required** — the server refuses to start without it in production; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 - **Local-first** — by default, all AI processing uses Ollama (no data leaves your machine)
 - **PII masking** — when using cloud APIs, NER-based masking automatically redacts personal data before sending
+- **Archive downloads**: `/documents` requires login and is owner-scoped (see Document ownership above)
 - **Authentication** — bcrypt password hashing, per-IP brute-force protection on WebSocket auth, optional shared-secret header
 - **Input sanitization** — all user input is stripped of control characters and length-capped before processing
 - **Log injection prevention** — user IDs are sanitized at all bridge entry points
