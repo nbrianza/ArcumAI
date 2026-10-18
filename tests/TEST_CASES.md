@@ -108,6 +108,50 @@ Not covered: the `try_login()` wiring in `main_nice.py` (client IP capture and U
 
 ---
 
+### `test_log_privacy.py`: No client content in server and add-in logs, issue #39 (74 tests)
+
+Synthetic marker `ZZ-SYNTHETIC-MARKER-123` in subject, body, CC address, attachment name,
+attachment text, skipped entry, optimizer output, exception text and search query. The
+`ArcumServer` and `ArcumIngestion` handlers are swapped for a list handler at DEBUG (DEBUG
+includes INFO, so criteria 1 and 2 are proven together); a record leaks if its message, args
+or formatted exception contain `synthetic-marker` (case-insensitive); stdout is checked with
+`capsys`. `load_users`, the AI engines and the pending-results store are faked, so no real
+data, model or `temp/` directory is used. The content switch is only turned on with
+`monkeypatch` on `src.logger.LOG_CLIENT_CONTENT`; config defaults and the refusal outside dev
+run in a subprocess. Not covered at runtime: the NiceGUI upload and admin closures (static
+guard instead, decision D3) and the C# add-in (static checks; runtime evidence is the CI
+msbuild step only).
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1-9 | `test_criterion1_2_loopback_email_marker_not_logged_at_debug[case]` | Loopback with no attachment, `.txt` attachment, read error, skipped entry, all skipped, oversized, client offline; optimizer success and failure: no marker in any record |
+| 10-18 | `test_criterion6_loopback_logs_request_id_for_correlation[case]` | Same cases: the request id is logged |
+| 19 | `test_criterion1_manager_send_email_path_marker_not_logged` | `handle_incoming_message` RX preview, "Email received" and enqueue lines; request id logged |
+| 20 | `test_criterion2_gemini_optimizer_missed_entity_not_logged_at_debug` | A PII entity missed by masking is not logged by the Gemini optimizer at DEBUG |
+| 21 | `test_d6_web_chat_question_not_logged` | The web chat question is not logged (decision D6) |
+| 22 | `test_criterion4_short_search_query_and_result_not_logged` | Outlook search: TX payload with the query and RX result with email data not logged |
+| 23 | `test_criterion4_complex_search_query_autofix_not_logged` | AUTO-FIX warning still emitted, without the query |
+| 24-33 | `test_criterion3_safe_ext_returns_sanitized_extension[name]` | `safe_ext`: lower-cased 1-8 alphanumeric suffix, otherwise `other` |
+| 34 | `test_static_guard_self_test_flags_raw_and_allows_wrapped_values` | Self-test of the AST guard |
+| 35 | `test_criterion1_to_4_static_guard_no_client_value_in_server_log_calls_outside_content` | No `server_log` call in `src/` interpolates a client value outside `content()`, `len()` or `safe_ext()` |
+| 36 | `test_criterion3_upload_and_admin_log_lines_drop_file_names_but_keep_the_action` | Upload, delete and re-ingest lines have no file name but still log user and action |
+| 37 | `test_d5_legacy_react_agent_is_not_verbose` | `LegacyReActAgent.from_tools` is not `verbose=True` (decision D5) |
+| 38-41 | `test_switch_content_*` | `content()`: `<N chars>` or summary when off, `repr` when on, newlines escaped |
+| 42-43 | `test_switch_startup_warning_once_when_on`, `test_switch_no_startup_warning_when_off` | `warn_if_content_logging` |
+| 44 | `test_switch_server_startup_calls_warning_and_reports_content_logging_state` | `main_nice.py` calls the warning and reports "Content logging" |
+| 45-51 | `test_switch_off_by_default_and_fail_safe_parsing[label]` | Unset, `false`, `1`, `yes`, typo give off |
+| 52-53 | `test_switch_on_with_true_in_dev[label]` | `true`/`TRUE` with `ARCUMAI_ENV=dev` give on |
+| 54-55 | `test_switch_refuses_to_start_when_on_outside_dev[label]` | `true` without dev raises `ValueError` naming `LOG_CLIENT_CONTENT` |
+| 56 | `test_switch_off_by_default_in_fresh_server_process` | Fresh process: flag off, `content()` redacts |
+| 57-61 | `test_switch_on_*` | When on: subject, body, query, skipped file name and request id are logged; body newlines escaped; RX preview and chat query logged |
+| 62 | `test_switch_not_pushed_to_addin_in_client_config` | No content-logging key in the `client/identify` config block |
+| 63 | `test_addin_static_guard_self_test` | Self-test of the C# guard |
+| 64 | `test_criterion5_addin_log_calls_do_not_interpolate_subject_file_name_or_query` | Five add-in files: no subject, file name, query (or `ex.Message` in `AttachmentExtractor`) outside `PluginConfig.Content` |
+| 65-69 | `test_criterion5_6_addin_steps_are_correlated_by_request_id[...]` | Processing, skipped, timeout, response and inject lines carry the request id |
+| 70-74 | `test_addin_switch_*`, `test_addin_app_config_*`, `test_addin_startup_*` | `LogClientContent` property and `Content` helper, default false, read from `App.config`, not server-managed, startup WARNING |
+
+---
+
 ### `test_rate_limiter.py` — Input sanitization & per-user rate limiting (9 tests)
 
 Covers `src/ui/rate_limiter.py`: control-character stripping, length capping,
