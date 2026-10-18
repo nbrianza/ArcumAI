@@ -38,7 +38,7 @@ You need two PEM files for ArcumAI: the certificate (optionally followed by the 
    icacls C:\ArcumAI-certs\arcumai-key.pem /inheritance:r /grant:r "${env:USERNAME}:R" "*S-1-5-32-544:F"
    ```
 
-   `${env:USERNAME}` must be the account that runs ArcumAI; `*S-1-5-32-544` is the local Administrators group.
+   `${env:USERNAME}` must be the account that runs ArcumAI; `*S-1-5-32-544` is the local Administrators group. After this, that account can only read the key: to replace or delete it later (for example at renewal), use an administrator PowerShell.
 
 2. Set both paths in `.env`:
 
