@@ -155,6 +155,9 @@ RATE_LIMIT_CLEANUP_INT = _env_int("RATE_LIMIT_CLEANUP_INT", "300", 1, 86_400)   
 # WebSocket auth rate limiting (per IP)
 WS_AUTH_MAX_ATTEMPTS   = _env_int("WS_AUTH_MAX_ATTEMPTS", "5", 1, 1_000)        # max failed attempts per window
 WS_AUTH_WINDOW         = _env_int("WS_AUTH_WINDOW", "60", 1, 86_400)            # window in seconds
+# Web login brute-force protection (per IP and per username)
+LOGIN_MAX_ATTEMPTS     = _env_int("LOGIN_MAX_ATTEMPTS", "6", 1, 1_000)          # failed attempts allowed per window
+LOGIN_WINDOW           = _env_int("LOGIN_WINDOW", "60", 1, 86_400)              # window in seconds
 WS_RECEIVE_TIMEOUT     = _env_int("WS_RECEIVE_TIMEOUT", "120", 10, 3_600)       # inactivity timeout in seconds (4× heartbeat)
 WS_API_KEY             = os.getenv("WS_API_KEY", "")                    # shared secret for plugin auth; empty = disabled
 

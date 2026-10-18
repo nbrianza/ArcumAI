@@ -2,10 +2,13 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 import json
 import re
+import threading
 import time
 import bcrypt
 from pathlib import Path
-from src.config import BASE_DIR, WS_AUTH_MAX_ATTEMPTS, WS_AUTH_WINDOW
+from src.config import (
+    BASE_DIR, WS_AUTH_MAX_ATTEMPTS, WS_AUTH_WINDOW, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW,
+)
 from src.logger import server_log as slog
 
 USERS_FILE = BASE_DIR / "users.json"
@@ -110,3 +113,50 @@ def ws_auth_is_rate_limited(ip: str) -> bool:
 def ws_auth_record_failure(ip: str) -> None:
     """Record a failed WebSocket auth attempt for this IP."""
     _ws_auth_failures.setdefault(ip, []).append(time.time())
+
+
+# --- Web Login Rate Limiting (per IP and per username) ---
+# Every submitted username is counted, known or not, so a "blocked" result
+# does not reveal whether a username exists. Empty keys are deleted.
+_login_failures_ip: dict[str, list[float]] = {}
+_login_failures_user: dict[str, list[float]] = {}
+_login_lock = threading.Lock()
+
+
+def _recent(store: dict[str, list[float]], key: str, now: float) -> list[float]:
+    """Prunes failures older than LOGIN_WINDOW for key; deletes the key when empty."""
+    attempts = [t for t in store.get(key, []) if now - t < LOGIN_WINDOW]
+    if attempts:
+        store[key] = attempts
+    else:
+        store.pop(key, None)
+    return attempts
+
+
+def check_login(users_db: dict, username: str, password: str, client_ip: str) -> str:
+    """Checks a web login attempt with brute-force protection.
+
+    Returns "ok", "failed" or "blocked". A blocked attempt does not check the
+    password and is not recorded. Never logs the password, and logs the
+    username only if it exists in users_db.
+    """
+    known = username in users_db
+    user_label = f"'{username}'" if known else "<unknown>"
+    with _login_lock:
+        now = time.time()
+        if (len(_recent(_login_failures_ip, client_ip, now)) >= LOGIN_MAX_ATTEMPTS
+                or len(_recent(_login_failures_user, username, now)) >= LOGIN_MAX_ATTEMPTS):
+            slog.warning(f"Web login blocked (IP: {client_ip}, user: {user_label})")
+            return "blocked"
+
+    if known and verify_password(password, users_db[username].get('pw_hash', '')):
+        with _login_lock:
+            _login_failures_user.pop(username, None)
+        return "ok"
+
+    with _login_lock:
+        now = time.time()
+        _login_failures_ip.setdefault(client_ip, []).append(now)
+        _login_failures_user.setdefault(username, []).append(now)
+    slog.warning(f"Web login failed (IP: {client_ip}, user: {user_label})")
+    return "failed"
