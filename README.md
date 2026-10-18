@@ -133,7 +133,7 @@ Place documents in the `data_nuovi/` folder, then run:
 python ingest.py
 ```
 
-**Document ownership.** Archived documents are served at `/documents` only to logged-in users. A document belongs to the user whose username matches its first folder under `data_archivio/` (case-insensitive), so drop each user's files into `input_utente/<username>/...`; the folder is carried into the archive. ADMIN users can open every document; other users only their own. Files at the archive root or under a folder that matches no user are ADMIN-only. Usernames must therefore be unique ignoring case. See `doc/decisions/0001-document-ownership-by-archive-folder.md`.
+**Document ownership.** Archived documents are served at `/documents` only to logged-in users. A document belongs to the user whose username matches its first folder under `data_archivio/` (case-insensitive), so drop each user's files into `input_utente/<username>/...`; the folder is carried into the archive. ADMIN users can open every document; other users only their own. Files at the archive root or under a folder that matches no user are ADMIN-only. Usernames must therefore be unique ignoring case. See `doc/decisions/0002-document-ownership-by-archive-folder.md`.
 
 ### 4. Start the server
 

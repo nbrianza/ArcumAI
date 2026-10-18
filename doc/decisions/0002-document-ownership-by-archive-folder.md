@@ -1,4 +1,4 @@
-# ADR 0001: Document ownership by archive folder
+# ADR 0002: Document ownership by archive folder
 
 - Status: accepted (owner approval on issue #36, decisions D1 to D8)
 - Date: 2026-10-18
