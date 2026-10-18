@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Nicolas Brianza
 # Licensed under the MIT License. See LICENSE file in the project root.
-"""Acceptance tests for issue #37: brute-force protection on the web login.
+"""Acceptance tests for issue #37: brute-force protection on the web login,
+and for issue #44: eviction of stale failure records (tests prefixed ``test_evict_``).
 
 The tests exercise ``src.auth.check_login(users_db, username, password, client_ip)``
 as specified in the approved design, which returns ``"ok"``, ``"failed"`` or
@@ -79,12 +80,20 @@ class _FakeClock:
 
 @pytest.fixture(autouse=True)
 def _reset_login_state():
-    """Clear the in-memory login failure stores before and after each test."""
+    """Clear the in-memory login failure stores before and after each test.
+
+    Also resets the periodic sweep timestamp ``_login_last_sweep`` (issue #44),
+    because the fake clock restarts at the same instant in every test. The
+    attribute is only reset when it exists, so the fixture also works before
+    the #44 implementation is in place.
+    """
     def _clear():
         for name in ("_login_failures_ip", "_login_failures_user"):
             store = getattr(auth_module, name, None)
             if isinstance(store, dict):
                 store.clear()
+        if hasattr(auth_module, "_login_last_sweep"):
+            auth_module._login_last_sweep = 0.0
     _clear()
     yield
     _clear()
@@ -390,3 +399,189 @@ def test_criterion6_unknown_username_not_logged_for_failed_and_blocked(clock, lo
         assert _ip(220 + i) in rec.getMessage()
     for rec in log_records:
         assert UNKNOWN_USER not in _all_text(rec), "unknown submitted username must not be logged"
+
+
+# =============================================================================
+# Issue #44: stale failure records are evicted
+# =============================================================================
+#
+# Owner decision on #44: a stale failure record may remain stored for at most
+# 2 x LOGIN_WINDOW, measured at the next login attempt (the approved design uses
+# an attempt-driven periodic sweep in check_login). The tests advance the fake
+# clock by 2 x LOGIN_WINDOW + 1 so they do not depend on where sweeps fall.
+# All usernames and IPs below are synthetic.
+
+def _ip44(n: int) -> str:
+    return f"10.0.44.{n}"
+
+
+def _traffic_ip(k: int) -> str:
+    """Distinct synthetic IP for background traffic, never blocked by itself."""
+    return f"10.44.{k // 250}.{k % 250 + 1}"
+
+
+def _ip_store() -> dict:
+    return auth_module._login_failures_ip
+
+
+def _user_store() -> dict:
+    return auth_module._login_failures_user
+
+
+def _retention_bound() -> int:
+    return 2 * _window()
+
+
+def _oldest_age(now: float) -> float:
+    ages = [now - t for store in (_ip_store(), _user_store()) for ts in store.values() for t in ts]
+    return max(ages, default=0.0)
+
+
+@pytest.mark.parametrize("first_user", ["evict-user-a", ALICE], ids=["unknown_user", "known_user"])
+@pytest.mark.parametrize(
+    "second_user, second_password, expected",
+    [("evict-user-b", WRONG_PASSWORD, "failed"), (BOB, BOB_PASSWORD, "ok")],
+    ids=["next_attempt_failed", "next_attempt_ok"],
+)
+def test_evict_criterion1_stale_username_and_ip_removed_after_unrelated_attempt(
+    clock, first_user, second_user, second_password, expected
+):
+    first_ip, second_ip = _ip44(1), _ip44(2)
+    assert _check(first_user, WRONG_PASSWORD, first_ip) == "failed"
+    assert first_user in _user_store() and first_ip in _ip_store(), "precondition: failure recorded"
+
+    clock.advance(_retention_bound() + 1)
+    assert _check(second_user, second_password, second_ip) == expected
+
+    leftovers = [k for store in (_ip_store(), _user_store()) for k in store if k in (first_user, first_ip)]
+    assert leftovers == [], f"stale records not evicted: {leftovers}"
+
+
+def test_evict_criterion2_hundred_stale_usernames_leave_at_most_the_new_attempt(clock):
+    n = _max_attempts()
+    for i in range(100):
+        # At most LOGIN_MAX_ATTEMPTS failures per IP, so no attempt is blocked.
+        assert _check(f"evict-many-{i}", WRONG_PASSWORD, _ip44(10 + i // n)) == "failed"
+    assert len(_user_store()) == 100, "precondition: 100 username records stored"
+
+    clock.advance(_retention_bound() + 1)
+    new_user = "evict-new-user"
+    assert _check(new_user, WRONG_PASSWORD, _ip44(250)) == "failed"
+
+    assert len(_user_store()) <= 1, f"{len(_user_store())} username entries remain"
+    assert set(_user_store()) <= {new_user}
+    assert set(_ip_store()) <= {_ip44(250)}
+
+
+def test_evict_criterion3_one_ip_six_usernames_per_window_for_fifty_windows_stays_bounded(clock):
+    n = _max_attempts()  # 6 by default, as in the scenario of the issue
+    ip = _ip44(200)
+    windows = 50
+    for w in range(windows):
+        if w:
+            clock.advance(_window())
+        for i in range(n):
+            assert _check(f"evict-w{w}-u{i}", WRONG_PASSWORD, ip) == "failed", f"window {w}, user {i}"
+
+    # Bound 2 x LOGIN_WINDOW: at most the usernames of the current and previous window.
+    assert len(_user_store()) <= 2 * n, (
+        f"{len(_user_store())} username entries stored after {windows} windows, expected at most {2 * n}"
+    )
+    assert len(_ip_store()) <= 1
+
+
+def test_evict_criterion4_fresh_records_survive_forced_sweep_and_still_block(clock, monkeypatch):
+    n = _max_attempts()
+    blocked_ip = _ip44(210)
+    target_user = "evict-target"
+    _fail_from_ip_with_distinct_unknown_users(blocked_ip, n, prefix="evict-fresh-")
+    for i in range(n):
+        assert _check(target_user, WRONG_PASSWORD, _ip44(220 + i)) == "failed"
+
+    clock.advance(_window() - 1)  # still inside LOGIN_WINDOW
+    # Force the periodic sweep to run on the next attempt (design: _login_last_sweep).
+    monkeypatch.setattr(auth_module, "_login_last_sweep", clock.now - 10 * _window(), raising=False)
+    assert _check("evict-other", WRONG_PASSWORD, _ip44(240)) == "failed"
+
+    assert len(_ip_store().get(blocked_ip, [])) == n, "fresh IP records must be kept by the sweep"
+    assert len(_user_store().get(target_user, [])) == n, "fresh username records must be kept by the sweep"
+    assert _check(ALICE, ALICE_PASSWORD, blocked_ip) == "blocked"
+    assert _check(target_user, WRONG_PASSWORD, _ip44(241)) == "blocked"
+
+
+def test_evict_criterion4_block_holds_for_whole_window_under_continuous_traffic(clock):
+    # Background traffic before and during the target's window, so that any
+    # periodic sweep falls while the target's records are still fresh.
+    n = _max_attempts()
+    w = _window()
+    step = max(1, w // 60)
+    k = 0
+
+    def traffic():
+        nonlocal k
+        assert _check(f"evict-bg-{k}", WRONG_PASSWORD, _traffic_ip(k)) == "failed"
+        k += 1
+
+    start = clock.now
+    while clock.now < start + w / 2:
+        traffic()
+        clock.advance(step)
+
+    blocked_ip = _ip44(230)
+    _fail_from_ip_with_distinct_unknown_users(blocked_ip, n, prefix="evict-cont-")
+    t_fail = clock.now
+    while clock.now + step < t_fail + w:
+        clock.advance(step)
+        traffic()
+        assert _check("evict-probe", WRONG_PASSWORD, blocked_ip) == "blocked", (
+            f"block lifted {clock.now - t_fail:.0f}s after the failures, before LOGIN_WINDOW"
+        )
+        assert len(_ip_store().get(blocked_ip, [])) == n
+
+
+def test_evict_criterion5_no_record_older_than_two_windows_under_continuous_traffic(clock):
+    w = _window()
+    step = max(1, w // 60)
+    assert _check("evict-old", WRONG_PASSWORD, _ip44(240)) == "failed"
+    start = clock.now
+    k = 0
+    while clock.now < start + 3 * w:
+        clock.advance(step)
+        assert _check(f"evict-tr-{k}", WRONG_PASSWORD, _traffic_ip(k)) == "failed"
+        k += 1
+        age = _oldest_age(clock.now)
+        assert age <= _retention_bound(), (
+            f"a record {age:.0f}s old is still stored, bound is {_retention_bound()}s"
+        )
+    assert "evict-old" not in _user_store()
+    assert _ip44(240) not in _ip_store()
+
+
+def test_evict_criterion5_eviction_still_happens_after_clock_moves_backwards(clock):
+    # Edge case beyond the criteria: the wall clock is set back after a sweep.
+    t0 = clock.now
+    clock.advance(10 * _window())
+    assert _check("evict-future", WRONG_PASSWORD, _ip44(241)) == "failed"
+
+    clock.now = t0
+    assert _check("evict-past", WRONG_PASSWORD, _ip44(242)) == "failed"
+    clock.advance(_retention_bound() + 1)
+    assert _check("evict-after", WRONG_PASSWORD, _ip44(243)) == "failed"
+
+    leftovers = [k for store in (_ip_store(), _user_store()) for k in store if k in ("evict-past", _ip44(242))]
+    assert leftovers == [], f"stale records not evicted: {leftovers}"
+
+
+def test_evict_cleanup_logs_nothing_about_evicted_records(clock, log_records):
+    old_user, old_ip = "evict-secret-name", _ip44(244)
+    assert _check(old_user, WRONG_PASSWORD, old_ip) == "failed"
+    before = len(log_records)
+
+    clock.advance(_retention_bound() + 1)
+    assert _check("evict-later", WRONG_PASSWORD, _ip44(245)) == "failed"
+
+    new = log_records[before:]
+    assert len(_warnings(new)) == 1, "only the WARNING for the new failed attempt"
+    for rec in new:
+        text = _all_text(rec)
+        assert old_user not in text and old_ip not in text, "eviction must not log usernames or IPs"

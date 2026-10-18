@@ -7,8 +7,7 @@ from urllib.parse import quote
 from nicegui import ui, run  # <--- ADDED 'run'
 
 from src.readers import SmartPDFReader
-from src.utils import find_relative_path
-from src.config import ARCHIVE_DIR
+from src.documents import source_link
 from src.logger import server_log as slog
 from src.ui.rate_limiter import _check_rate_limit, sanitize_input
 
@@ -195,13 +194,13 @@ def create_footer(session, user_data, chat_container, mode_display, on_message_s
                                         seen.add(fname)
                                         icon = 'picture_as_pdf' if fname.lower().endswith('.pdf') else 'description'
 
-                                        relative_path = None
-                                        if meta_path and Path(meta_path).exists():
-                                            try: relative_path = Path(meta_path).relative_to(ARCHIVE_DIR.absolute())
-                                            except Exception: pass
-                                        if not relative_path: relative_path = find_relative_path(fname)
-
-                                        url_link = f'/documents/{quote(str(relative_path).replace("\\\\", "/"), safe="/")}'
+                                        url_link = source_link(meta_path, fname, user_data.get('username', ''), user_data.get('role', ''))
+                                        if url_link is None:
+                                            # The user cannot open this document (#36): plain label, no link.
+                                            with ui.row().classes('items-center border border-gray-400/30 rounded px-2 py-1 bg-white/50 gap-1'):
+                                                ui.icon(icon).classes('text-gray-700 text-xs')
+                                                ui.label(fname).classes('text-xs text-gray-800 max-w-[150px] truncate')
+                                            continue
                                         with ui.link(target=url_link, new_tab=True).classes('no-underline decoration-none'):
                                             with ui.row().classes('items-center border border-gray-400/30 rounded px-2 py-1 bg-white/50 hover:bg-white/80 cursor-pointer gap-1'):
                                                 ui.icon(icon).classes('text-gray-700 text-xs')

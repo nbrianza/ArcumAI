@@ -24,6 +24,17 @@ value stops startup with `ValueError: Invalid config: NAME=value ...`. Ranges ar
 
 Note: web login throttling uses the client IP seen by the server. Behind a reverse proxy, or when many clients share one IP (NAT), all of them may count as one IP, so a few failed logins can block everyone at that address for `LOGIN_WINDOW` seconds.
 
+### Web UI Chat Rate Limiting
+
+| Variable | Type | Default | Allowed Values | Description |
+|----------|------|---------|----------------|-------------|
+| `RATE_LIMIT_MESSAGES` | int | `20` | `1` - `10000` | Web UI chat: max chat messages per logged-in user per window; further messages are refused until older ones leave the window |
+| `RATE_LIMIT_WINDOW` | int | `60` | `1` - `86400` (seconds) | Web UI chat: length of the rate limit window |
+| `RATE_LIMIT_STALE_TTL` | int | `3600` | `1` - `604800` (seconds) | Web UI chat limiter: users with no message for this long are removed from the in-memory state |
+| `RATE_LIMIT_CLEANUP_INT` | int | `300` | `1` - `86400` (seconds) | Web UI chat limiter: interval between cleanups of idle users |
+
+Note: the chat rate limit is counted per logged-in user, is held in memory and is reset when the server restarts.
+
 ### Hardware Profile & LLM
 
 | Variable | Type | Default | Allowed Values | Description |
@@ -64,6 +75,17 @@ Note: web login throttling uses the client IP seen by the server. Behind a rever
 |----------|------|---------|----------------|-------------|
 | `LOG_LEVEL` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | Python logging level |
 
+### Outlook Bridge Connection Security
+
+| Variable | Type | Default | Allowed Values | Description |
+|----------|------|---------|----------------|-------------|
+| `WS_API_KEY` | string (secret) | *(empty)* | Any string; empty disables the check | Outlook WebSocket bridge: shared secret the add-in must send as `X-API-Key`; must match the add-in `ApiKey` setting. A wrong key is refused and counts as a failed attempt for `WS_AUTH_*` |
+| `WS_AUTH_MAX_ATTEMPTS` | int | `5` | `1` - `1000` | Outlook WebSocket bridge (`/ws/outlook/{user_id}`): failed connection attempts (wrong API key or unregistered Outlook ID) allowed per client IP per window; further connections from that IP are refused. Not related to web login (see `LOGIN_*`) |
+| `WS_AUTH_WINDOW` | int | `60` | `1` - `86400` (seconds) | Outlook WebSocket bridge: length of the failed-attempt window per client IP |
+| `WS_RECEIVE_TIMEOUT` | int | `120` | `10` - `3600` (seconds) | Outlook WebSocket bridge: a connection that sends nothing for this many seconds is closed. Keep it above the add-in `HeartbeatIntervalMs` (default 30000 ms = 30 s); the default is 4 times the heartbeat |
+
+Note: `WS_API_KEY` is a secret. Set it only in the local `.env` file, which is never committed; never log it or paste it into issues, pull requests or chats. Leaving it empty removes API key protection on the bridge, so set a long random value in production (for example `WS_API_KEY=<long-random-secret>`, replacing the placeholder) and the same value as `ApiKey` in the add-in. Raising `WS_AUTH_MAX_ATTEMPTS` or `WS_RECEIVE_TIMEOUT` weakens the bridge protection. Failed attempts are counted per client IP seen by the server: behind a reverse proxy, or when many clients share one IP (NAT), they all count as one IP, as for `LOGIN_*`.
+
 ### VSTO / Outlook Bridge
 
 | Variable | Type | Default | Description |
@@ -92,6 +114,15 @@ Note: web login throttling uses the client IP seen by the server. Behind a rever
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `INGEST_TIMEOUT_SEC` | int | `600` | Max runtime of an ingestion started from `/admin` (60-86400 s). The process runs at below-normal priority and only one run is allowed at a time. |
+
+### OCR (Document Readers)
+
+| Variable | Type | Default | Allowed Values | Description |
+|----------|------|---------|----------------|-------------|
+| `TESSERACT_CMD` | string (path) | `C:\Program Files\Tesseract-OCR\tesseract.exe` | Path to `tesseract.exe` | Document OCR: Tesseract executable used for scanned PDFs (ingestion, chat uploads, Outlook loopback attachments) |
+| `POPPLER_PATH` | string (path) | `C:\Program Files\Poppler\Library\bin` | Path to the Poppler `bin` folder | Document OCR: Poppler tools that turn PDF pages into images for Tesseract |
+
+Note: these paths are not range-checked. If either path does not exist, OCR is disabled with the warning `OCR disabled: ...` and startup continues (no startup failure); only scanned or low-quality PDFs need OCR.
 
 ### Implicit / Set by Code
 
