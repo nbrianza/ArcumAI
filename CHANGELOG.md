@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Server answers plugin heartbeats with `heartbeat/ack`; the plugin uses it to detect a silent server (#20)
 - Web login brute-force protection: after `LOGIN_MAX_ATTEMPTS` (default 6) failures per IP or per username within `LOGIN_WINDOW` (default 60 s) further attempts are blocked and logged (#37)
 - `doc/ENV_VARIABLES.md` documents `RATE_LIMIT_*`, `WS_AUTH_*`, `WS_RECEIVE_TIMEOUT`, `WS_API_KEY`, `TESSERACT_CMD` and `POPPLER_PATH` (#40)
+- Optional TLS (`SSL_CERTFILE`, `SSL_KEYFILE`, or `TLS_TERMINATED_UPSTREAM` behind a reverse proxy) and a startup WARNING when the server listens on a non-loopback address without TLS; setup guide in `doc/TLS_SETUP.md` (#38)
 
 ### Changed
 
@@ -39,6 +40,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin: each COM object released independently (#23); removed no-op catch/rethrow (#32)
 - Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
 - Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
+- Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
 
 ---
 

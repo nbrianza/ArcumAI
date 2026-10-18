@@ -21,6 +21,9 @@ value stops startup with `ValueError: Invalid config: NAME=value ...`. Ranges ar
 | `STORAGE_SECRET` | string | *(required; ephemeral random value when `ARCUMAI_ENV=dev`)* | NiceGUI session storage secret |
 | `LOGIN_MAX_ATTEMPTS` | int | `6` | Failed web logins allowed per window, counted per client IP and per username (`1` - `1000`). The next attempt within the window is blocked without checking the password |
 | `LOGIN_WINDOW` | int | `60` | Web login throttling window in seconds (`1` - `86400`). A block ends this many seconds after the last failed attempt |
+| `SSL_CERTFILE` | string | *(empty)* | Path to the PEM server certificate (chain). Set together with `SSL_KEYFILE` to serve HTTPS and WSS; see [TLS_SETUP.md](TLS_SETUP.md) |
+| `SSL_KEYFILE` | string | *(empty)* | Path to the PEM private key (not password protected; keep it outside the repository and never commit it). If only one of the two files is set, or a path does not exist, startup stops with a `ValueError` naming the variable |
+| `TLS_TERMINATED_UPSTREAM` | bool | `false` | `true` declares that a reverse proxy in front of ArcumAI terminates TLS. Without TLS and without this flag, a non-loopback `HOST` logs one WARNING at startup (the server still starts) |
 
 Note: web login throttling uses the client IP seen by the server. Behind a reverse proxy, or when many clients share one IP (NAT), all of them may count as one IP, so a few failed logins can block everyone at that address for `LOGIN_WINDOW` seconds.
 
@@ -145,7 +148,7 @@ The C# plugin does **not** read `.env` files. Configuration is loaded from (in p
 | Key | Type | Default | Validation | Description |
 |-----|------|---------|------------|-------------|
 | `ServerUrl` | string | `ws://localhost:8080` | Must start with `ws://` or `wss://` | WebSocket server URL |
-| `UseSecureConnection` | bool | `false` | — | Use secure WebSocket (wss://) |
+| `UseSecureConnection` | bool | `false` | Must be `true` unless the `ServerUrl` host is exactly `localhost`, `127.x.x.x` or `[::1]` | Use secure WebSocket (wss://) |
 | `UserId` | string | *(Windows username)* | Auto-detected if empty | User identifier |
 | `AutoReconnect` | bool | `true` | — | Auto-reconnect on disconnect |
 | `ReconnectDelayMs` | int | `5000` | >= 1000 | Delay between reconnection attempts (ms) |
@@ -193,6 +196,10 @@ PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 STORAGE_SECRET=your_secret_here
 CHAINLIT_AUTH_SECRET=your_auth_secret_here
+# TLS (see doc/TLS_SETUP.md); leave empty to run without TLS
+SSL_CERTFILE=
+SSL_KEYFILE=
+TLS_TERMINATED_UPSTREAM=false
 
 # Hardware profile
 PROFILE=LOW_RESOURCE
