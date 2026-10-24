@@ -73,7 +73,7 @@ and per-IP WebSocket brute-force protection.
 
 ---
 
-### `test_login_throttle.py`: Web login brute-force protection, issue #37 (22 tests)
+### `test_login_throttle.py`: Web login brute-force protection, issues #37 and #44 (33 tests)
 
 Covers `src.auth.check_login(users_db, username, password, client_ip)`, which returns
 `"ok"`, `"failed"` or `"blocked"`. Synthetic users and IPs only; a fake clock replaces
@@ -105,6 +105,21 @@ Not covered: the `try_login()` wiring in `main_nice.py` (client IP capture and U
 | 20 | `test_criterion6_successful_login_logs_no_warning` | No WARNING on success |
 | 21 | `test_criterion6_password_never_logged_at_any_level` | No submitted password in any record at any level |
 | 22 | `test_criterion6_unknown_username_not_logged_for_failed_and_blocked` | Unknown submitted username never logged; IP is logged |
+
+Issue #44 (eviction of stale failure records; owner decision: a stale record stays at most
+2 x `LOGIN_WINDOW`, measured at the next login attempt). The autouse fixture also resets
+`_login_last_sweep` when it exists.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 23-26 | `test_evict_criterion1_stale_username_and_ip_removed_after_unrelated_attempt` (4 cases) | After 2 x `LOGIN_WINDOW` + 1, one attempt (failed or ok) with another user and IP removes the old username and IP from both stores; known and unknown first user |
+| 27 | `test_evict_criterion2_hundred_stale_usernames_leave_at_most_the_new_attempt` | 100 stale usernames, one unrelated attempt: at most 1 username entry left |
+| 28 | `test_evict_criterion3_one_ip_six_usernames_per_window_for_fifty_windows_stays_bounded` | 6 usernames per window for 50 windows from one IP: at most 12 entries, not 300 |
+| 29 | `test_evict_criterion4_fresh_records_survive_forced_sweep_and_still_block` | A sweep forced at `LOGIN_WINDOW - 1` keeps fresh records; IP and username blocks still apply |
+| 30 | `test_evict_criterion4_block_holds_for_whole_window_under_continuous_traffic` | With background traffic, an IP block holds for the whole window and its records are kept |
+| 31 | `test_evict_criterion5_no_record_older_than_two_windows_under_continuous_traffic` | After every attempt over 3 windows, no stored timestamp is older than 2 x `LOGIN_WINDOW` |
+| 32 | `test_evict_criterion5_eviction_still_happens_after_clock_moves_backwards` | Edge case: eviction keeps working after the wall clock is set back |
+| 33 | `test_evict_cleanup_logs_nothing_about_evicted_records` | Eviction logs no username or IP; only the new attempt's WARNING |
 
 ---
 

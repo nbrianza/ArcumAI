@@ -161,6 +161,11 @@ LOGIN_WINDOW           = _env_int("LOGIN_WINDOW", "60", 1, 86_400)              
 WS_RECEIVE_TIMEOUT     = _env_int("WS_RECEIVE_TIMEOUT", "120", 10, 3_600)       # inactivity timeout in seconds (4× heartbeat)
 WS_API_KEY             = os.getenv("WS_API_KEY", "")                    # shared secret for plugin auth; empty = disabled
 
+# Transport encryption (TLS), see doc/TLS_SETUP.md
+SSL_CERTFILE            = os.getenv("SSL_CERTFILE", "")                  # PEM certificate (chain); empty = no TLS
+SSL_KEYFILE             = os.getenv("SSL_KEYFILE", "")                   # PEM private key; empty = no TLS
+TLS_TERMINATED_UPSTREAM = os.getenv("TLS_TERMINATED_UPSTREAM", "false").lower() == "true"  # a reverse proxy terminates TLS
+
 # --- 10b. LOOPBACK QUEUE & RESILIENCE ---
 LOOPBACK_MAX_CONCURRENT  = _env_int("LOOPBACK_MAX_CONCURRENT", "3", 1, 64)
 PENDING_RESULT_TTL_HOURS = _env_int("PENDING_RESULT_TTL_HOURS", "48", 1, 8_760)

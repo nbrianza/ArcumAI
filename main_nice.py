@@ -39,11 +39,14 @@ from src.config import (
     PROMPT_OPTIMIZATION, ENABLE_NER_MASKING,
     WS_RECEIVE_TIMEOUT,
     WS_API_KEY,
+    SSL_CERTFILE, SSL_KEYFILE, TLS_TERMINATED_UPSTREAM,
 )
+from src.tls import build_ssl_kwargs, warn_if_unencrypted
 from src.auth import load_users, verify_password, check_login, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
 from src.logger import server_log as slog
 from src.conversations import ConversationStore
+from src.documents import router as documents_router
 
 # Import UI Modules (Refactored)
 from src.ui.header import create_header
@@ -71,7 +74,7 @@ def _cleanup_on_shutdown():
 
 # Setup Assets
 if not ARCHIVE_DIR.exists(): ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-app.add_static_files('/documents', str(ARCHIVE_DIR))
+app.include_router(documents_router)  # authenticated, owner-scoped (#36)
 
 ASSETS_DIR = Path("assets")
 if not ASSETS_DIR.exists(): ASSETS_DIR.mkdir()
@@ -102,7 +105,7 @@ def _is_valid_outlook_id(user_id: str) -> bool:
 async def outlook_endpoint(websocket: WebSocket, user_id: str):
     """
     Endpoint for the C# plugin to connect to.
-    URL: ws://your-server:8080/ws/outlook/username
+    URL: ws://your-server:8080/ws/outlook/username (wss:// when TLS is enabled)
     """
     client_ip = websocket.client.host if websocket.client else "unknown"
 
@@ -149,12 +152,28 @@ def login_page():
     users_db = load_users()
     client_ip = ui.context.client.ip or "unknown"
 
-    with ui.card().classes('absolute-center w-96 p-8 shadow-2xl border').style('background-color: #2C6672; border-color: #2d5f64'):
+    card_color = '#2C6672'
+    # Browser autofill (Chrome/Edge) paints a light background behind the inputs;
+    # cover it with the card colour and keep the text white (#43).
+    ui.add_css(f'''
+        .arcum-login-field input:-webkit-autofill,
+        .arcum-login-field input:-webkit-autofill:hover,
+        .arcum-login-field input:-webkit-autofill:focus,
+        .arcum-login-field input:-webkit-autofill:active {{
+            -webkit-box-shadow: 0 0 0 1000px {card_color} inset !important;
+            box-shadow: 0 0 0 1000px {card_color} inset !important;
+            -webkit-text-fill-color: #ffffff !important;
+            caret-color: #ffffff;
+            transition: background-color 9999s ease-out 0s;
+        }}
+    ''', shared=False)
+
+    with ui.card().classes('absolute-center w-96 p-8 shadow-2xl border').style(f'background-color: {card_color}; border-color: #2d5f64'):
         ui.image('/assets/newArcumAILogo.PNG').classes('w-48 mx-auto mb-4 object-contain')
         ui.label('Restricted Access').classes('text-xl font-bold text-center w-full mb-4 text-white')
 
-        username = ui.input('Username').classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
-        password = ui.input('Password', password=True).classes('w-full text-white').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
+        username = ui.input('Username').classes('w-full text-white arcum-login-field').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
+        password = ui.input('Password', password=True).classes('w-full text-white arcum-login-field').props('dark outlined input-class=text-white').on('keydown.enter', lambda: try_login())
         error_msg = ui.label('').classes('text-red-400 text-sm hidden mt-2 text-center w-full')
 
         def try_login():
@@ -293,10 +312,22 @@ if __name__ in {"__main__", "__mp_main__"}:
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', '8080'))
 
+    # Transport encryption (#38): a half-configured TLS setup stops startup with a
+    # clear ValueError; no TLS on a non-loopback bind only logs a WARNING.
+    ssl_kwargs = build_ssl_kwargs(SSL_CERTFILE, SSL_KEYFILE)
+
     slog.info("Starting Arcum AI")
     slog.info(f"  Profile: {PROFILE} | LLM: {LLM_MODEL_NAME} | Embed: {EMBED_MODEL_NAME}")
     slog.info(f"  Context: {CONTEXT_WINDOW} | Chunk: {CHUNK_SIZE}/{CHUNK_OVERLAP}")
     slog.info(f"  Prompt Optimization: {PROMPT_OPTIMIZATION} | NER Masking: {ENABLE_NER_MASKING}")
     slog.info(f"  Host: {host}:{port}")
+    if ssl_kwargs:
+        slog.info("  Transport: https/wss")
+    elif TLS_TERMINATED_UPSTREAM:
+        slog.info("  Transport: http/ws (TLS terminated upstream)")
+    else:
+        slog.info("  Transport: http/ws")
+    warn_if_unencrypted(host, port, bool(ssl_kwargs), TLS_TERMINATED_UPSTREAM, slog)
 
-    ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False, storage_secret=storage_secret)
+    ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False,
+           storage_secret=storage_secret, **ssl_kwargs)
