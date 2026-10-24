@@ -70,7 +70,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     if (count >= maxResults) break;
                 }
 
-                _logAction("INFO", $"GetEmails: found {results.Count} emails for query '{query}'");
+                _logAction("INFO", $"GetEmails: found {results.Count} emails (query {PluginConfig.Content(query, (query?.Length ?? 0) + " chars")})");
             }
             catch (Exception ex)
             {

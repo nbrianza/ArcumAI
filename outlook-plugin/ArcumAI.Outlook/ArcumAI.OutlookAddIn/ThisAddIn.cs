@@ -58,6 +58,11 @@ namespace ArcumAI.OutlookAddIn
                 _logger.Log("WARNING", $"Unable to serialize configuration: {ex.Message}");
             }
 
+            if (_config.LogClientContent)
+            {
+                _logger.Log("WARNING", "LogClientContent is ON: plugin.log will contain email subjects, file names and queries. Development only.");
+            }
+
             // 2. Setup Transport
             _transport = new WebSocketTransport();
             _transport.MessageReceived += OnMessageFromArcum;
@@ -296,14 +301,14 @@ namespace ArcumAI.OutlookAddIn
                 if (_loopbackHandler.ShouldIntercept(mail))
                 {
                     // ArcumAI is the ONLY recipient: full intercept
-                    _logger.Log("INFO", $"VirtualLoopback: Intercepting email to ArcumAI: '{mail.Subject}'");
+                    _logger.Log("INFO", $"VirtualLoopback: Intercepting email to ArcumAI (subject {PluginConfig.Content(mail.Subject, (mail.Subject?.Length ?? 0) + " chars")})");
                     Cancel = true;
                     _ = _loopbackHandler.ProcessInterceptedEmail(mail);
                 }
                 else if (_loopbackHandler.ShouldProcessInParallel(mail))
                 {
                     // ArcumAI + real recipients: send normally but also process via AI
-                    _logger.Log("INFO", $"VirtualLoopback: Parallel processing (CC to ArcumAI): '{mail.Subject}'");
+                    _logger.Log("INFO", $"VirtualLoopback: Parallel processing (CC to ArcumAI) (subject {PluginConfig.Content(mail.Subject, (mail.Subject?.Length ?? 0) + " chars")})");
                     _loopbackHandler.RemoveArcumRecipient(mail);
                     _ = _loopbackHandler.ProcessInterceptedEmail(mail);
                     // Cancel stays false: email is sent to real recipients

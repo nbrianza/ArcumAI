@@ -410,7 +410,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                 responseItem.Save();
                 movedItem = (Outlook.MailItem)responseItem.Move(inbox);
 
-                _logAction("INFO", $"VirtualLoopback: Response email injected into Inbox: 'Re: {subject}'");
+                _logAction("INFO", $"VirtualLoopback: Response email injected into Inbox (ID: {responseData["request_id"]}, subject {PluginConfig.Content(subject, subject.Length + " chars")})");
 
                 // Show notification
                 if (_config.ShowProcessingNotification)

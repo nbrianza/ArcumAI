@@ -239,7 +239,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     _logAction("DEBUG", $"MAPI [PR_INTERNET_MESSAGE_ID on original]: {ex.Message}");
                 }
 
-                _logAction("INFO", $"VirtualLoopback: Processing email '{subject}' (ID: {requestId})");
+                _logAction("INFO", $"VirtualLoopback: Processing email (ID: {requestId}, subject {PluginConfig.Content(subject, subject.Length + " chars")}, body {body.Length} chars)");
 
                 // Extract attachments (base64 encoded, inline attachments skipped)
                 var (attachmentsArray, skippedAttachments) = _attachmentExtractor.ExtractAttachments(mail);
@@ -263,7 +263,7 @@ namespace ArcumAI.OutlookAddIn.Core
                             $"Files that were too large:\n{bullets}\n\n" +
                             "Please compress the files or split them into smaller parts and try again."
                     };
-                    _logAction("INFO", $"VirtualLoopback: All attachments skipped for '{subject}' — error reply injected locally");
+                    _logAction("INFO", $"VirtualLoopback: All attachments skipped (ID: {requestId}, subject {PluginConfig.Content(subject, subject.Length + " chars")}) — error reply injected locally");
                     if (_syncContext != null)
                         _syncContext.Post(_ => { _mailFactory.SimulateSentItem(mail); _mailFactory.DeleteInterceptedItem(mail); _mailFactory.CreateResponseEmail(errorResponse); }, null);
                     else
@@ -379,7 +379,7 @@ namespace ArcumAI.OutlookAddIn.Core
                     await Task.Delay(delayMs, sessionToken);
                     if (_pendingRequests.TryRemove(requestId, out var req))
                     {
-                        _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} ('{req.OriginalSubject}')");
+                        _logAction("WARNING", $"VirtualLoopback: Timeout for request {requestId} (subject {PluginConfig.Content(req.OriginalSubject, (req.OriginalSubject?.Length ?? 0) + " chars")})");
                         _mailFactory.InjectResponseOnMainThread(_mailFactory.CreateTimeoutResponse(req), req);
                     }
                 }
@@ -440,7 +440,7 @@ namespace ArcumAI.OutlookAddIn.Core
             _pendingRequests.TryRemove(requestId, out var originalRequest);
 
             string subject = responseParams["subject"]?.ToString() ?? "ArcumAI";
-            _logAction("INFO", $"VirtualLoopback: Received AI response for '{subject}' (ID: {requestId})");
+            _logAction("INFO", $"VirtualLoopback: Received AI response (ID: {requestId}, subject {PluginConfig.Content(subject, subject.Length + " chars")})");
 
             _mailFactory.InjectResponseOnMainThread(responseParams, originalRequest);
         }

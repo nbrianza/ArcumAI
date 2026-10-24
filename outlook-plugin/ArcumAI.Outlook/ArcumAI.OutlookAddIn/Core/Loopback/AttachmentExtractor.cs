@@ -65,7 +65,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                             string contentId = att.PropertyAccessor.GetProperty(MapiProperties.AttachContentId) as string;
                             if (!string.IsNullOrEmpty(contentId))
                             {
-                                _logAction("DEBUG", $"VirtualLoopback: Skipping inline attachment '{att.FileName}' (Content-ID: {contentId})");
+                                _logAction("DEBUG", $"VirtualLoopback: Skipping inline attachment #{i} ({PluginConfig.Content(att.FileName, "ext=" + SafeExt(att.FileName))})");
                                 continue;
                             }
                         }
@@ -76,12 +76,14 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
 
                         string fileName = att.FileName ?? $"attachment_{i}";
                         long fileSize = att.Size;
+                        // Log label: the file name only with LogClientContent on, otherwise index and extension
+                        string attLabel = $"#{i} ({PluginConfig.Content(fileName, "ext=" + SafeExt(fileName))})";
 
                         // Per-file size limit
                         if (fileSize > maxFileBytes)
                         {
                             string reason = $"{fileName} ({fileSize / 1024 / 1024} MB, limit is {_config.MaxAttachmentSizeMB} MB)";
-                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — exceeds per-file size limit");
+                            _logAction("WARNING", $"VirtualLoopback: Skipping attachment {attLabel}, {fileSize / 1024} KB — exceeds per-file size limit");
                             skipped.Add(reason);
                             continue;
                         }
@@ -90,7 +92,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                         if (totalBytes + fileSize > maxTotalBytes)
                         {
                             string reason = $"{fileName} (total limit of {_config.MaxTotalAttachmentsMB} MB would be exceeded)";
-                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — total size limit reached");
+                            _logAction("WARNING", $"VirtualLoopback: Skipping attachment {attLabel}, {fileSize / 1024} KB — total size limit reached");
                             skipped.Add(reason);
                             continue;
                         }
@@ -103,13 +105,13 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                         fileSize = new FileInfo(tempPath).Length;
                         if (fileSize > maxFileBytes)
                         {
-                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — saved file exceeds per-file size limit");
+                            _logAction("WARNING", $"VirtualLoopback: Skipping attachment {attLabel}, {fileSize / 1024} KB — saved file exceeds per-file size limit");
                             skipped.Add($"{fileName} ({fileSize / 1024 / 1024} MB, limit is {_config.MaxAttachmentSizeMB} MB)");
                             continue;
                         }
                         if (totalBytes + fileSize > maxTotalBytes)
                         {
-                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — total size limit reached");
+                            _logAction("WARNING", $"VirtualLoopback: Skipping attachment {attLabel}, {fileSize / 1024} KB — total size limit reached");
                             skipped.Add($"{fileName} (total limit of {_config.MaxTotalAttachmentsMB} MB would be exceeded)");
                             continue;
                         }
@@ -119,7 +121,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                         long encodedSize = (fileSize + 2) / 3 * 4;
                         if (totalEncodedBytes + encodedSize > maxEncodedBytes)
                         {
-                            _logAction("WARNING", $"VirtualLoopback: Skipping '{fileName}' — payload limit would be exceeded");
+                            _logAction("WARNING", $"VirtualLoopback: Skipping attachment {attLabel}, {fileSize / 1024} KB — payload limit would be exceeded");
                             skipped.Add($"{fileName} (request size limit of {_config.MaxPayloadSizeMB} MB would be exceeded)");
                             continue;
                         }
@@ -140,12 +142,13 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
                         });
 
                         totalBytes += fileSize;
-                        _logAction("INFO", $"VirtualLoopback: Extracted '{fileName}' ({fileSize / 1024} KB, {mimeType})");
+                        _logAction("INFO", $"VirtualLoopback: Extracted attachment {attLabel} ({fileSize / 1024} KB, {mimeType})");
                     }
                     catch (Exception ex)
                     {
                         string name = att != null ? (att.FileName ?? $"#{i}") : $"#{i}";
-                        _logAction("WARNING", $"VirtualLoopback: Could not extract attachment '{name}': {ex.Message}");
+                        // ex.Message can quote the temp path, which contains the file name
+                        _logAction("WARNING", $"VirtualLoopback: Could not extract attachment #{i} ({PluginConfig.Content(name, "ext=" + SafeExt(name))}): {PluginConfig.Content(ex.Message, ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
                         skipped.Add($"{name} (read error: {ex.Message})");
                     }
                     finally
@@ -163,7 +166,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
             }
             catch (Exception ex)
             {
-                _logAction("ERROR", $"VirtualLoopback: Attachment extraction failed: {ex.Message}");
+                _logAction("ERROR", $"VirtualLoopback: Attachment extraction failed: {PluginConfig.Content(ex.Message, ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
             }
             finally
             {
@@ -171,6 +174,33 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
             }
 
             return (result, skipped);
+        }
+
+        /// <summary>
+        /// Lower-cased extension of fileName if it is 1 to 8 alphanumeric characters after
+        /// the dot, otherwise "other" (an arbitrary suffix could itself carry client content).
+        /// Mirrors src.logger.safe_ext on the server (#39).
+        /// </summary>
+        private static string SafeExt(string fileName)
+        {
+            string ext;
+            try
+            {
+                ext = (Path.GetExtension(fileName ?? "") ?? "").ToLowerInvariant();
+            }
+            catch (ArgumentException)
+            {
+                return "other";
+            }
+            if (ext.Length < 2 || ext.Length > 9)
+                return "other";
+            for (int k = 1; k < ext.Length; k++)
+            {
+                char c = ext[k];
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')))
+                    return "other";
+            }
+            return ext;
         }
 
         /// <summary>

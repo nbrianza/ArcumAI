@@ -43,6 +43,11 @@ namespace ArcumAI.OutlookAddIn.Core
         public int LoopbackTimeoutMs { get; set; }
         public bool ShowProcessingNotification { get; set; }
 
+        // Debug switch (issue #39): when true, plugin.log also contains client content
+        // (subjects, attachment file names, search queries). Local setting only, never
+        // pushed by the server. Development only.
+        public bool LogClientContent { get; set; }
+
         /// <summary>
         /// Singleton instance with thread-safe initialization.
         /// </summary>
@@ -71,6 +76,18 @@ namespace ArcumAI.OutlookAddIn.Core
         internal PluginConfig()
         {
             PluginConfigLoader.SetDefaults(this);
+        }
+
+        /// <summary>
+        /// Client data for a log line: the value itself (CR and LF escaped, so it stays on
+        /// one line) when LogClientContent is on, otherwise the redacted summary.
+        /// Client content must reach plugin.log only through this helper (#39).
+        /// </summary>
+        internal static string Content(string value, string redacted)
+        {
+            if (!Instance.LogClientContent)
+                return redacted;
+            return (value ?? "").Replace("\r", "\\r").Replace("\n", "\\n");
         }
 
         /// <summary>
