@@ -41,6 +41,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
 - Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
+- Admin page re-ingestion keeps the document in its original archive folder (owner Sources links keep working) and no longer creates `_<timestamp>` copies; the document list shows one row per path, failed re-ingestions are put back in their folder and reported, and unsafe paths are rejected (#46)
 
 ---
 
