@@ -27,7 +27,7 @@ The plugin loads configuration in the following order:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `ServerUrl` | string | `ws://localhost:8080` | WebSocket server URL |
-| `UseSecureConnection` | bool | `false` | Use WSS (secure) instead of WS. Must be `true` unless the ServerUrl host is exactly `localhost`, `127.x.x.x` or `[::1]` (see `doc/TLS_SETUP.md`) |
+| `UseSecureConnection` | bool | `false` | Use WSS (secure) instead of WS. Must be `true` unless the ServerUrl starts with `wss://` or its host is exactly `localhost`, `127.x.x.x` or `[::1]` (see `doc/TLS_SETUP.md`) |
 | `UserId` | string | *auto-detect* | User identifier (leave empty for Windows username) |
 
 **Examples:**
@@ -231,6 +231,8 @@ Manually copy the appropriate file to `config.json` before deployment.
 ## Troubleshooting
 
 ### Plugin Not Connecting
+
+If the log shows `[ERROR] Connection refused: ... the connection would not be encrypted`, the add-in refused a cleartext connection to a remote server (it sends nothing and does not retry). Set `UseSecureConnection` to `true` or use a `wss://` `ServerUrl` in `config.json`, then restart Outlook. See `doc/TLS_SETUP.md`.
 
 1. Check `ServerUrl` is correct
 2. Verify server is running
