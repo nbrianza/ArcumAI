@@ -232,6 +232,8 @@ Manually copy the appropriate file to `config.json` before deployment.
 
 ### Plugin Not Connecting
 
+If the log shows `[ERROR] Connection refused: ... the connection would not be encrypted`, the add-in refused a cleartext connection to a remote server (it sends nothing and does not retry). Set `UseSecureConnection` to `true` or use a `wss://` `ServerUrl` in `config.json`, then restart Outlook. See `doc/TLS_SETUP.md`.
+
 1. Check `ServerUrl` is correct
 2. Verify server is running
 3. Check firewall settings

@@ -148,7 +148,7 @@ The C# plugin does **not** read `.env` files. Configuration is loaded from (in p
 | Key | Type | Default | Validation | Description |
 |-----|------|---------|------------|-------------|
 | `ServerUrl` | string | `ws://localhost:8080` | Must start with `ws://` or `wss://` | WebSocket server URL |
-| `UseSecureConnection` | bool | `false` | Must be `true` unless the `ServerUrl` starts with `wss://` or its host is exactly `localhost`, `127.x.x.x` or `[::1]` | Use secure WebSocket (wss://) |
+| `UseSecureConnection` | bool | `false` | Must be `true` unless the `ServerUrl` starts with `wss://` or its host is exactly `localhost`, `127.x.x.x` or `[::1]`; otherwise the add-in refuses to connect and logs `[ERROR] Connection refused: ...` (fix the setting, restart Outlook) | Use secure WebSocket (wss://) |
 | `UserId` | string | *(Windows username)* | Auto-detected if empty | User identifier |
 | `AutoReconnect` | bool | `true` | — | Auto-reconnect on disconnect |
 | `ReconnectDelayMs` | int | `5000` | >= 1000 | Delay between reconnection attempts (ms) |
