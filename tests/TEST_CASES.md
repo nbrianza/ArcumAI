@@ -167,6 +167,24 @@ msbuild step only).
 
 ---
 
+### `test_document_send_error_privacy.py`: No document path in `/documents` send errors, issue #39 (4 tests)
+
+Tester finding S2 on PR #58: if a document disappears between the existence check and
+the send, Starlette raises an error quoting the absolute path, which the server logs as an
+ERROR traceback. The router runs on a bare FastAPI app with `current_user` overridden and a
+synthetic archive under `tmp_path`; the race is simulated by patching `Path.is_file` or
+`anyio.open_file`. A leak is `synthetic-marker` in the raised traceback or in an
+`ArcumServer` record.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_s2_file_removed_before_send_error_has_no_path` | File gone before Starlette stats it: no path in the error or the log; one `Document send failed` ERROR |
+| 2 | `test_s2_file_removed_before_open_error_has_no_path` | File gone before it is opened (`OSError` quoting the path): no path in the error or the log |
+| 3 | `test_s2_switch_on_logs_the_original_error_text` | With `LOG_CLIENT_CONTENT` on, the original error text is logged |
+| 4 | `test_s2_normal_download_still_works` | A normal download still returns the file |
+
+---
+
 ### `test_rate_limiter.py` — Input sanitization & per-user rate limiting (9 tests)
 
 Covers `src/ui/rate_limiter.py`: control-character stripping, length capping,
