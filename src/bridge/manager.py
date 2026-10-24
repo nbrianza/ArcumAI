@@ -11,7 +11,8 @@ from typing import Dict, Any
 from fastapi import WebSocket
 
 # Using the server_log defined in src/logger.py
-from src.logger import server_log as log
+import src.logger as _logger
+from src.logger import server_log as log, content
 from src.bridge.pending_results import PendingResultStore
 from src.bridge.loopback_queue import _EmailTask, _UserQueue
 from src.bridge.loopback_processor import LoopbackProcessor
@@ -116,7 +117,9 @@ class OutlookBridgeManager:
 
             json_str = json.dumps(payload)
             await ws.send_text(json_str)
-            log.debug(f"📤 MCP TX [{user_id}]: {json_str}")
+            if _logger.LOG_CLIENT_CONTENT:
+                # Full payload (may contain the search query): only with the debug switch on
+                log.debug(f"📤 MCP TX [{user_id}]: {content(json_str, '')}")
             log.info(f"📤 MCP TX [{user_id}]: method={payload.get('method')} ({len(json_str)} bytes)")
 
             # 5. Wait for the response
@@ -151,8 +154,11 @@ class OutlookBridgeManager:
                 return
 
             # RX logging (truncate large messages with attachments)
+            # The preview may contain client content (email data, subjects, bodies):
+            # it is only logged with LOG_CLIENT_CONTENT on.
             log_preview = message[:500] + "..." if len(message) > 500 else message
-            log.info(f"MCP RX [{user_id}]: {log_preview}")
+            log.info(f"MCP RX [{user_id}]: method={data.get('method')} id={data.get('id')} "
+                     f"({len(message)} bytes) {content(log_preview, '')}".rstrip())
 
             # Client identification handshake — client declares its type, server pushes config
             if data.get("method") == "client/identify":
@@ -181,7 +187,7 @@ class OutlookBridgeManager:
             if data.get("method") == "virtual_loopback/send_email":
                 request_id = data.get("id", str(uuid.uuid4()))
                 params = data.get("params", {})
-                log.info(f"VirtualLoopback: Email received from {user_id} | Subject: '{params.get('subject', '?')}'")
+                log.info(f"VirtualLoopback: Email received from {user_id} | req={request_id}")
 
                 # Send immediate acknowledgment
                 ack = {
@@ -298,8 +304,8 @@ class OutlookBridgeManager:
             priority=priority, sequence=uq.sequence,
             user_id=user_id, request_id=request_id, params=params
         ))
-        log.info(f"Queue[{user_id}]: enqueued seq={uq.sequence} priority={priority} "
-                 f"subject='{params.get('subject', '?')}' depth={uq.queue.qsize()}")
+        log.info(f"Queue[{user_id}]: enqueued req={request_id} seq={uq.sequence} priority={priority} "
+                 f"depth={uq.queue.qsize()}")
 
     async def _queue_worker(self, user_id: str):
         """Per-user worker: pulls tasks from the priority queue and processes them
