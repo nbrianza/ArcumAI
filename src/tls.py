@@ -63,3 +63,17 @@ def warn_if_unencrypted(host: str, port: int, tls_enabled: bool, upstream: bool,
         "reverse proxy, or bind HOST=127.0.0.1. See doc/TLS_SETUP.md."
     )
     return True
+
+
+def session_cookie_kwargs(tls_enabled: bool, upstream: bool) -> dict:
+    """Return the extra ``SessionMiddleware`` keyword arguments for the
+    session cookie (issue #50).
+
+    When direct TLS is active or TLS is declared as terminated upstream,
+    returns ``{"https_only": True}`` so browsers send the session cookie
+    over HTTPS only. Otherwise returns ``{}``, which leaves the cookie
+    exactly as before. A new dict is returned on every call.
+    """
+    if tls_enabled or upstream:
+        return {"https_only": True}
+    return {}
