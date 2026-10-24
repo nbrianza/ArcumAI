@@ -8,6 +8,7 @@ Accessible only to users with role == 'ADMIN'.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -15,7 +16,11 @@ from pathlib import Path
 
 from nicegui import ui, app, run
 
-from src.config import BASE_DIR, INBOX_DIR, ARCHIVE_DIR, COLLECTION_NAME, DB_PATH, INGEST_TIMEOUT_SEC
+from src.config import (
+    BASE_DIR, INBOX_DIR, ARCHIVE_DIR, ERROR_DIR, DUPLICATES_DIR,
+    COLLECTION_NAME, DB_PATH, INGEST_TIMEOUT_SEC,
+)
+from src.documents import resolve_archive_path
 from src.logger import server_log as slog
 
 _ingestion_lock = threading.Lock()
@@ -38,12 +43,14 @@ def _list_documents() -> list[dict]:
     ids = data.get("ids", [])
     metas = data.get("metadatas", [])
 
-    # Group chunks by filename to show one row per document
+    # Group chunks by file_path to show one row per document: two files with the
+    # same name in different folders are different documents (#46).
     docs: dict[str, dict] = {}
     for i, meta in enumerate(metas):
         fname = meta.get("filename", "unknown")
-        if fname not in docs:
-            docs[fname] = {
+        key = meta.get("file_path") or fname
+        if key not in docs:
+            docs[key] = {
                 "filename": fname,
                 "file_path": meta.get("file_path", ""),
                 "file_hash": meta.get("file_hash", ""),
@@ -51,8 +58,8 @@ def _list_documents() -> list[dict]:
                 "chunk_count": 0,
                 "chunk_ids": [],
             }
-        docs[fname]["chunk_count"] += 1
-        docs[fname]["chunk_ids"].append(ids[i])
+        docs[key]["chunk_count"] += 1
+        docs[key]["chunk_ids"].append(ids[i])
 
     return sorted(docs.values(), key=lambda d: d["filename"].lower())
 
@@ -65,25 +72,72 @@ def _delete_document_chunks(chunk_ids: list[str]) -> int:
     return len(chunk_ids)
 
 
+def _stage_for_reingest(file_path: str) -> Path:
+    """Move an archived document into INBOX_DIR at the same relative path.
+
+    file_path is relative to ARCHIVE_DIR and comes from client-synchronised
+    table data, so it is validated here. Moving instead of copying lets
+    ingest.py archive the file back into its own folder with no _<timestamp>
+    duplicate, and makes the indexed file_path equal to the archive-relative
+    path (#46). Returns the staged archive-relative path. Error messages never
+    contain the requested path.
+    """
+    resolved = resolve_archive_path(file_path, ARCHIVE_DIR)
+    if resolved is None:
+        raise ValueError("Path traversal rejected")
+    if not resolved.is_file():
+        raise FileNotFoundError("Document not found in the archive")
+    rel = resolved.relative_to(ARCHIVE_DIR.resolve())
+    dest = INBOX_DIR / rel
+    if not dest.resolve().is_relative_to(INBOX_DIR.resolve()):
+        raise ValueError("Path traversal rejected")
+    if dest.exists():
+        raise FileExistsError("A file with the same path is already waiting in the inbox")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(resolved), str(dest))
+    return rel
+
+
+def _settle_after_reingest(rel: Path) -> str:
+    """Report where a staged document ended up after the ingestion run.
+
+    "ok": archived again in its folder. "queued": still in the inbox (lock held
+    by another run, or timeout); the next run archives it in the right folder.
+    "restored": ingestion sent it to data_error or data_duplicati and it was
+    moved back to its archive folder, not indexed. "missing": none of these.
+    """
+    archived = ARCHIVE_DIR / rel
+    if archived.is_file():
+        return "ok"
+    if (INBOX_DIR / rel).is_file():
+        return "queued"
+    for folder in (ERROR_DIR, DUPLICATES_DIR):
+        failed = folder / rel
+        if failed.is_file() and not archived.exists():
+            archived.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(failed), str(archived))
+            return "restored"
+    return "missing"
+
+
 def _run_ingestion(target_path: str | None = None) -> str:
     """Run the ingestion pipeline as a subprocess.
 
-    If target_path is given, copy that single file to INBOX_DIR first.
+    If target_path is given, move that single archived file to INBOX_DIR first,
+    keeping its folder (see _stage_for_reingest).
     Returns stdout+stderr output for display. Only one run at a time: concurrent
     ingest.py processes would write to the same ChromaDB/BM25 stores.
     """
     if not _ingestion_lock.acquire(blocking=False):
         return "An ingestion is already running. Try again when it has finished."
     try:
-        # If re-ingesting a single file, copy it back to inbox
+        # If re-ingesting a single file, move it back to the inbox in its folder
         if target_path:
             src = Path(target_path).resolve()
             if not src.is_relative_to(ARCHIVE_DIR.resolve()):
-                raise ValueError(f"Path traversal rejected: {target_path!r}")
+                raise ValueError("Path traversal rejected")
             if src.exists():
-                import shutil
-                INBOX_DIR.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src), str(INBOX_DIR / src.name))
+                _stage_for_reingest(str(src.relative_to(ARCHIVE_DIR.resolve())))
 
         try:
             result = subprocess.run(
@@ -219,27 +273,77 @@ def create_admin_page():
                         if not selected:
                             ui.notify('Select at least one document.', type='warning')
                             return
-                        # First delete from index, then re-ingest from archive
-                        from src.config import ARCHIVE_DIR
+                        # Move each file from the archive into the inbox at the same
+                        # relative path first; delete its chunks only after the move
+                        # succeeded, so a failed move leaves the document indexed (#46).
+                        staged: list[tuple[str, Path]] = []
                         for row in selected:
+                            name = row.get('filename', '?')
+                            try:
+                                rel = await run.io_bound(_stage_for_reingest, row.get('_full_path', ''))
+                            except ValueError:
+                                slog.warning(f"[{username}] Re-ingest rejected an invalid document path")
+                                ui.notify(f'{name}: invalid document path, skipped.', type='negative')
+                                continue
+                            except FileNotFoundError:
+                                ui.notify(f'{name}: file not found in the archive, skipped.', type='negative')
+                                continue
+                            except FileExistsError:
+                                ui.notify(f'{name}: a file with the same path is already waiting in '
+                                          f'data_nuovi/, skipped.', type='negative')
+                                continue
+                            except OSError:
+                                ui.notify(f'{name}: the file could not be moved (it may be open in '
+                                          f'another program), skipped.', type='negative')
+                                continue
+
                             chunk_ids = row.get('_chunk_ids', [])
                             if chunk_ids:
-                                await run.io_bound(_delete_document_chunks, chunk_ids)
-                            # Copy file from archive back to inbox for re-ingestion
-                            fpath = row.get('_full_path', '')
-                            if fpath:
-                                full = ARCHIVE_DIR / fpath
-                                if full.exists():
-                                    import shutil
-                                    INBOX_DIR.mkdir(parents=True, exist_ok=True)
-                                    shutil.copy2(str(full), str(INBOX_DIR / full.name))
-                                    slog.info(f"[{username}] Queued re-ingest: {full.name}")
+                                try:
+                                    await run.io_bound(_delete_document_chunks, chunk_ids)
+                                except Exception:
+                                    # Put the file back, otherwise ingestion would find its
+                                    # hash still indexed and send it to data_duplicati.
+                                    try:
+                                        await run.io_bound(shutil.move, str(INBOX_DIR / rel),
+                                                           str(ARCHIVE_DIR / rel))
+                                    except OSError:
+                                        pass
+                                    ui.notify(f'{name}: the index could not be updated, skipped.',
+                                              type='negative')
+                                    continue
+                            staged.append((name, rel))
+                            slog.info(f"[{username}] Queued re-ingest: {rel.name}")
+
+                        if not staged:
+                            table.selected.clear()
+                            await refresh_table()
+                            return
 
                         ui.notify('Running ingestion...', type='info')
                         output = await run.io_bound(_run_ingestion)
                         log_output.value = output
                         log_output.classes(remove='hidden')
-                        ui.notify('Re-ingestion complete.', type='positive')
+
+                        reindexed = 0
+                        for name, rel in staged:
+                            try:
+                                status = await run.io_bound(_settle_after_reingest, rel)
+                            except OSError:
+                                status = 'missing'
+                            if status == 'ok':
+                                reindexed += 1
+                            elif status == 'queued':
+                                ui.notify(f'{name}: still waiting in data_nuovi/, it will be indexed '
+                                          f'by the next ingestion run.', type='warning')
+                            elif status == 'restored':
+                                ui.notify(f'{name}: ingestion failed; the file is back in its archive '
+                                          f'folder but is not indexed.', type='warning')
+                            else:
+                                ui.notify(f'{name}: not found in the archive after ingestion; check '
+                                          f'data_error/ and data_duplicati/.', type='warning')
+                        ui.notify(f'{reindexed} of {len(staged)} document(s) re-indexed.',
+                                  type='positive' if reindexed == len(staged) else 'warning')
                         table.selected.clear()
                         await refresh_table()
 
