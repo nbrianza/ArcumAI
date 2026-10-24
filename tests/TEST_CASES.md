@@ -123,6 +123,40 @@ Issue #44 (eviction of stale failure records; owner decision: a stale record sta
 
 ---
 
+### `test_ws_auth_throttle.py`: Outlook bridge auth throttle eviction, issue #51 (20 tests)
+
+Covers `ws_auth_is_rate_limited` and `ws_auth_record_failure` in `src/auth.py`. A bridge
+connection is modelled by a call to `ws_auth_is_rate_limited` (what `outlook_endpoint`
+runs before authenticating), a failed authentication by a following `ws_auth_record_failure`.
+Synthetic IPs only (`10.0.51.0/24`, `10.51.0.0/16`); a fake clock replaces `time.time` and
+`time.monotonic`. The autouse fixture clears `_ws_auth_failures` and resets
+`_ws_auth_last_sweep` (when it exists). Retention bound: 2 x `WS_AUTH_WINDOW`.
+Not covered: `outlook_endpoint` end to end (no WebSocket harness); criterion 6 is a static
+check of `main_nice.py`.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_ws_evict_criterion1_clean_connection_leaves_no_entry` | A connection with no failure stores no key |
+| 2 | `test_ws_evict_criterion1_repeated_clean_connections_leave_no_entry` | Repeated clean connections store no key |
+| 3 | `test_ws_evict_criterion1_entry_removed_when_last_failure_expires` | An IP whose failures expired is removed by its own check, not kept as an empty list |
+| 4 | `test_ws_evict_criterion2_stale_failures_removed_after_connection_from_other_ip` | After 2 x window + 1, a connection from another IP evicts the first IP |
+| 5 | `test_ws_evict_criterion2_blocked_ip_evicted_after_bound` | Same, for an IP that was blocked |
+| 6 | `test_ws_evict_criterion2_stale_failures_removed_when_next_connection_fails_too` | Same, when the later connection also fails |
+| 7 | `test_ws_evict_criterion3_thousand_clean_ips_leave_at_most_one_entry` | 1000 clean IPs, advance, one more connection: at most 1 entry |
+| 8 | `test_ws_evict_criterion3_thousand_clean_ips_store_nothing_even_before_bound` | 1000 clean IPs store nothing at all |
+| 9 | `test_ws_evict_criterion3_thousand_failed_ips_leave_at_most_the_new_one` | 1000 failed IPs, advance, one more connection: at most the new IP |
+| 10 | `test_ws_evict_criterion4_fresh_failures_survive_forced_sweep_and_still_block` | A sweep forced at `WS_AUTH_WINDOW - 1` keeps fresh failures; IP still blocked |
+| 11 | `test_ws_evict_criterion4_blocked_exactly_after_max_attempts` | Not blocked at `WS_AUTH_MAX_ATTEMPTS - 1`, blocked at `WS_AUTH_MAX_ATTEMPTS` |
+| 12 | `test_ws_evict_criterion4_block_holds_until_window_ends_then_lifts` | Block holds at window - 1 with other traffic, lifts after the window |
+| 13 | `test_ws_evict_criterion4_block_holds_for_whole_window_under_continuous_traffic` | With background traffic, the block and its records hold for the whole window |
+| 14 | `test_ws_evict_criterion5_no_record_older_than_two_windows_under_continuous_traffic` | After every connection over 3 windows, no timestamp older than 2 x `WS_AUTH_WINDOW` |
+| 15 | `test_ws_evict_criterion5_eviction_still_happens_after_clock_moves_backwards` | Edge case (D4): eviction keeps working after the wall clock is set back |
+| 16 | `test_ws_evict_cleanup_logs_no_ip` | Eviction logs no IP |
+| 17-19 | `test_ws_evict_criterion6_close_codes_and_reasons_unchanged` (3 cases) | `main_nice.py` still closes with 4002, 4003, 4001 and the same reasons |
+| 20 | `test_ws_evict_criterion6_endpoint_still_uses_throttle_functions` | `outlook_endpoint` still calls the check once and records failures in both paths |
+
+---
+
 ### `test_rate_limiter.py` — Input sanitization & per-user rate limiting (9 tests)
 
 Covers `src/ui/rate_limiter.py`: control-character stripping, length capping,
