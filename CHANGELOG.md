@@ -26,6 +26,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - `/documents` (archive downloads and chat Sources links) now requires login and enforces ownership: ADMIN reads every document, other users only documents under `data_archivio/<username>/` (case-insensitive); files at the archive root or under an unknown folder are ADMIN-only. Denials are logged with reason and IP only. Non-admin users lose access to documents outside their own folder (#36)
+- The session cookie is marked `Secure` when TLS is enabled (`SSL_CERTFILE` and `SSL_KEYFILE`, or `TLS_TERMINATED_UPSTREAM=true`), so browsers never send it over plain HTTP; users must then always use the `https://` address (#50)
 
 ### Fixed
 
