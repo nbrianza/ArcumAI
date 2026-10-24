@@ -27,7 +27,7 @@ The plugin loads configuration in the following order:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `ServerUrl` | string | `ws://localhost:8080` | WebSocket server URL |
-| `UseSecureConnection` | bool | `false` | Use WSS (secure) instead of WS. Must be `true` unless the ServerUrl host is exactly `localhost`, `127.x.x.x` or `[::1]` (see `doc/TLS_SETUP.md`) |
+| `UseSecureConnection` | bool | `false` | Use WSS (secure) instead of WS. Must be `true` unless the ServerUrl starts with `wss://` or its host is exactly `localhost`, `127.x.x.x` or `[::1]` (see `doc/TLS_SETUP.md`) |
 | `UserId` | string | *auto-detect* | User identifier (leave empty for Windows username) |
 
 **Examples:**
