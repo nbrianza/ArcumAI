@@ -111,14 +111,14 @@ namespace ArcumAI.OutlookAddIn.Core
                 return false;
             }
 
-            if (!ServerUrl.StartsWith("ws://") && !ServerUrl.StartsWith("wss://"))
+            if (!ServerUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) &&
+                !ServerUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
             {
                 errorMessage = "ServerUrl must start with ws:// or wss://";
                 return false;
             }
 
-            bool isLocalhost = IsLoopbackServerUrl(ServerUrl);
-            if (!UseSecureConnection && !isLocalhost)
+            if (IsCleartextRemoteConnection())
             {
                 errorMessage = "UseSecureConnection must be true for non-localhost connections";
                 return false;
@@ -181,6 +181,18 @@ namespace ArcumAI.OutlookAddIn.Core
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// True when the connection would be cleartext (ws:// and UseSecureConnection false)
+        /// to a host that is not loopback. A wss:// address (any letter case) is always
+        /// encrypted. Single place of the TLS rule, used by Validate().
+        /// </summary>
+        internal bool IsCleartextRemoteConnection()
+        {
+            string url = ServerUrl ?? "";
+            bool tls = UseSecureConnection || url.StartsWith("wss://", StringComparison.OrdinalIgnoreCase);
+            return !tls && !IsLoopbackServerUrl(url);
         }
 
         /// <summary>

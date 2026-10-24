@@ -141,7 +141,7 @@ Edit `%APPDATA%\ArcumAI\Outlook\config.json` on each Outlook machine:
 }
 ```
 
-- `UseSecureConnection` must be `true` whenever the server host is not exactly `localhost`, a `127.x.x.x` address or `[::1]`. A host name that only contains "localhost" (for example `localhost.example.test`) is a remote host.
+- `UseSecureConnection` must be `true` whenever the `ServerUrl` starts with `ws://` and the server host is not exactly `localhost`, a `127.x.x.x` address or `[::1]`. A `ServerUrl` starting with `wss://` (any letter case) is always encrypted and satisfies the rule even when `UseSecureConnection` is `false`. A host name that only contains "localhost" (for example `localhost.example.test`) is a remote host.
 - The add-in validates the server certificate with the Windows certificate store. If the certificate is not trusted (step 4 skipped, wrong host name, expired), the connection fails and the add-in keeps retrying; check the add-in log. There is no option to skip certificate validation, and none should be added.
 - Behind a reverse proxy, use the proxy address and port in `ServerUrl`.
 
