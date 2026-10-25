@@ -185,6 +185,28 @@ synthetic archive under `tmp_path`; the race is simulated by patching `Path.is_f
 
 ---
 
+### `test_log_privacy_tracebacks.py`: Exception text and tracebacks only with the content switch, issue #39 (28 tests)
+
+Owner decisions on PR #67. Each error line is driven by raising a synthetic exception
+whose message carries `ZZ-SYNTHETIC-MARKER-123`. Switch off: the line logs the exception
+type, no traceback, and no record contains the marker. Switch on (`monkeypatch` on
+`src.logger.LOG_CLIENT_CONTENT`): the exception text and the traceback are logged.
+Fixtures and fakes are imported from `test_log_privacy.py`. The add-in lines are static
+source checks only (runtime evidence is the CI msbuild step).
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1-2 | `test_processing_failed_*` | `loopback_processor.py` "Processing failed" (with request id) |
+| 3-4 | `test_ai_engine_error_*` | `loopback_processor.py` "AI engine error" |
+| 5-6 | `test_engine_execution_error_*` | `session.py` "Engine execution error" |
+| 7-11 | `test_addin_exception_lines_log_type_only_unless_switch_on[...]` | Add-in `{ex}` lines in `VirtualLoopbackHandler.cs`, `OutlookMailFactory.cs`, `ThisAddIn.cs` (3): exception text and stack trace only inside `PluginConfig.Content`, type logged |
+| 12 | `test_addin_exception_guard_self_test` | Self-test of the add-in check |
+| 13-18 | `test_manager_*[switch_off/on]` | `manager.py` "Critical Bridge Error", "Error parsing message", queue "worker error" |
+| 19-22 | `test_ner_*[switch_off/on]` | `ner_masking.py` "Masking failed" and "De-anonymization failed"; return values unchanged |
+| 23-28 | `test_prompt_optimizer_*[switch_off/on]` | `prompt_optimizer.py` "Local LLM failed", "NER masking failed", "Gemini API failed" (tester point O1) |
+
+---
+
 ### `test_rate_limiter.py` — Input sanitization & per-user rate limiting (9 tests)
 
 Covers `src/ui/rate_limiter.py`: control-character stripping, length capping,

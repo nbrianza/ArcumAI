@@ -135,7 +135,9 @@ class OutlookBridgeManager:
 
         except Exception as e:
             err_msg = f"⚠️ Critical Bridge Error: {str(e)}"
-            log.error(err_msg, exc_info=True)
+            # Exception text and traceback can quote the request: only with the debug switch on (#39)
+            log.error(f"⚠️ Critical Bridge Error [{user_id}]: {content(str(e), type(e).__name__)}",
+                      exc_info=_logger.LOG_CLIENT_CONTENT)
             return err_msg
 
     async def handle_incoming_message(self, user_id: str, message: str):
@@ -230,7 +232,8 @@ class OutlookBridgeManager:
                     log.info(f"Notification from Outlook ({user_id}): {method}")
 
         except Exception as e:
-            log.error(f"Error parsing message from {user_id}: {e}", exc_info=True)
+            log.error(f"Error parsing message from {user_id}: {content(str(e), type(e).__name__)}",
+                      exc_info=_logger.LOG_CLIENT_CONTENT)
 
     # ------------------------------------------------------------------
     #  VIRTUAL LOOPBACK: PROCESS EMAIL FROM PLUGIN
@@ -325,7 +328,8 @@ class OutlookBridgeManager:
                 log.info(f"Queue[{user_id}]: worker stopped")
                 break
             except Exception as e:
-                log.error(f"Queue[{user_id}]: worker error: {e}", exc_info=True)
+                log.error(f"Queue[{user_id}]: worker error: {content(str(e), type(e).__name__)}",
+                          exc_info=_logger.LOG_CLIENT_CONTENT)
                 # Never kill the worker — keep processing next items
 
 
