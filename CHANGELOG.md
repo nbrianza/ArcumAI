@@ -54,6 +54,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin: a `wss://` ServerUrl (any letter case) is accepted as secure even when `UseSecureConnection` is false; the `ws://`/`wss://` prefix check is case-insensitive (#48)
 - Outlook bridge authentication throttle no longer keeps an entry for every connecting IP; a failure record is gone by the first bridge connection at or after 2 x `WS_AUTH_WINDOW` (#51)
 - Web login and Outlook bridge authentication throttles measure time with a monotonic clock, so setting the system clock backwards or forwards neither extends nor shortens a block and no longer keeps failure records longer than 2 x the window (#59)
+- Hybrid RAG search returns each chunk at most once (the BM25 index was built with raw database metadata, so the same chunk appeared twice and took the place of another relevant one); RAG answers no longer fail on an archive with fewer chunks than `RETRIEVER_TOP_K`; a BM25 error at query time is logged with its exception class only and the answer uses vector retrieval alone; the BM25 load warning shows only the exception class. New option `ingest.py --rebuild-bm25` rebuilds the keyword index from the database without processing the inbox. Existing installations: run once `.venv\Scripts\python ingest.py --rebuild-bm25` (check `$LASTEXITCODE`), then restart the server; until then duplicates remain (#71)
 
 ---
 

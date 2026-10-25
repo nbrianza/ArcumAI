@@ -10,7 +10,6 @@ from pathlib import Path
 # LlamaIndex & Chroma
 from llama_index.core import VectorStoreIndex, StorageContext, Settings, Document
 from llama_index.readers.file import DocxReader, PandasExcelReader
-from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 from tqdm import tqdm  # Progress bar
@@ -30,7 +29,8 @@ from src.utils import (
     file_ref,
     sposta_file_con_struttura,
     pulisci_cartelle_vuote,
-    get_all_nodes_from_chroma
+    get_all_nodes_from_chroma,
+    rebuild_bm25_index
 )
 
 # --- LOCK FILE CONFIG (WINDOWS SAFE) ---
@@ -115,11 +115,29 @@ def read_and_chunk_file(file_path):
         return None, "ERROR"
 
 def main():
+    """Runs one batch ingestion, or only the BM25 rebuild with --rebuild-bm25.
+
+    Returns 1 when the requested BM25 rebuild did not run or failed, else None.
+    """
+    rebuild_only = "--rebuild-bm25" in sys.argv[1:]
     if not acquire_lock():
         log.warning("⏳ Ingestion already running (Lock file present). Exiting.")
-        return
+        return 1 if rebuild_only else None
 
     try:
+        # Manual one-time rebuild of the BM25 index (#71). Unknown arguments are
+        # ignored, so callers that pass their own argv still run an ingestion.
+        if rebuild_only:
+            log.info("🧠 Rebuilding Hybrid Index (BM25) from the database...")
+            try:
+                BM25_PATH.mkdir(parents=True, exist_ok=True)
+                _index, collection = get_db_components()
+                rebuild_bm25_index(collection, BM25_PATH, nodes_loader=get_all_nodes_from_chroma)
+            except Exception as e:
+                log.error(f"❌ BM25 Error: {content(str(e), type(e).__name__)}")
+                return 1
+            return None
+
         log.info(f"🔄 STARTING BATCH INGESTION ({PROFILE})")
 
         for p in [INBOX_DIR, ARCHIVE_DIR, ERROR_DIR, DUPLICATES_DIR, BM25_PATH]:
@@ -209,14 +227,7 @@ def main():
         if processed_count > 0:
             log.info("🧠 Updating Hybrid Index (BM25)...")
             try:
-                all_nodes = get_all_nodes_from_chroma(collection)
-                if all_nodes:
-                    bm25 = BM25Retriever.from_defaults(
-                        nodes=all_nodes,
-                        similarity_top_k=5,
-                        language="italian"
-                    )
-                    bm25.persist(str(BM25_PATH))
+                rebuild_bm25_index(collection, BM25_PATH, nodes_loader=get_all_nodes_from_chroma)
             except Exception as e: log.error(f"❌ BM25 Error: {content(str(e), type(e).__name__)}")
 
         pulisci_cartelle_vuote(INBOX_DIR)
@@ -235,4 +246,4 @@ def main():
         release_lock()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

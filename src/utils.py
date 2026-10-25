@@ -130,29 +130,41 @@ def pulisci_cartelle_vuote(root_dir: Path):
         log.info(f"   🧹 Cleanup: Removed {removed_count} empty folders in {root_dir.name}.")
 
 def get_all_nodes_from_chroma(chroma_collection):
-    """Retrieves ALL data from the ChromaDB collection."""
+    """Retrieves ALL data from the ChromaDB collection.
+
+    Nodes are rebuilt exactly as the vector store rebuilds them (issue #71), so a
+    chunk has the same id, text, metadata and hash in BM25 and in vector results
+    and the hybrid fusion keeps one entry per chunk.
+    """
     log.info("   ⏳ Retrieving data from ChromaDB...")
     try:
-        db_data = chroma_collection.get(include=["documents", "metadatas"])
-        ids = db_data.get("ids", [])
-        texts = db_data.get("documents", [])
-        metadatas = db_data.get("metadatas", [])
-
-        if not ids:
-            return []
-
-        all_nodes = []
-        for i in range(len(ids)):
-            node = TextNode(
-                text=texts[i],
-                metadata=metadatas[i],
-                id_=ids[i]
-            )
-            all_nodes.append(node)
-        return all_nodes
+        from llama_index.vector_stores.chroma import ChromaVectorStore
+        return ChromaVectorStore(chroma_collection=chroma_collection).get_nodes(None)
     except Exception as e:
         log.error(f"❌ Error retrieving nodes: {content(str(e), type(e).__name__)}")
         return []
+
+def rebuild_bm25_index(chroma_collection, bm25_path, *, nodes_loader=None) -> int:
+    """Rebuilds the BM25 index at bm25_path from every chunk in the collection.
+
+    Returns the number of chunks indexed; 0 means nothing was written. Exceptions
+    propagate to the caller. nodes_loader defaults to get_all_nodes_from_chroma.
+    Logs the chunk count only (no file names, paths or chunk text).
+    """
+    from llama_index.retrievers.bm25 import BM25Retriever
+    loader = nodes_loader or get_all_nodes_from_chroma
+    all_nodes = loader(chroma_collection)
+    if not all_nodes:
+        log.info("   BM25 index not rebuilt: 0 chunks in the collection.")
+        return 0
+    bm25 = BM25Retriever.from_defaults(
+        nodes=all_nodes,
+        similarity_top_k=5,
+        language="italian"
+    )
+    bm25.persist(str(bm25_path))
+    log.info(f"   BM25 index rebuilt: {len(all_nodes)} chunks.")
+    return len(all_nodes)
 
     # --- ADDITIONS FOR ARCUM AI HYBRID UI ---
 
