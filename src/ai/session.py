@@ -27,7 +27,8 @@ GLOBAL_CHAT_TRIGGERS = load_chat_triggers()
 
 from src.auth import load_users
 from src.bridge import bridge_manager
-from src.logger import server_log as slog
+import src.logger as _logger
+from src.logger import server_log as slog, content
 from src.ai.engines import load_rag_engine, load_simple_local_engine, load_cloud_engine
 
 
@@ -110,7 +111,8 @@ class UserSession:
             """
             # Guardrail: If the query is a natural question, clean it
             if "?" in query or len(query.split()) > 6:
-                slog.warning(f"[{self.username}] AUTO-FIX EMAIL: Query '{query}' too complex. Resetting to empty (latest mail).")
+                slog.warning(f"[{self.username}] AUTO-FIX EMAIL: Query {content(query)} too complex "
+                             f"({len(query)} chars, {len(query.split())} words). Resetting to empty (latest mail).")
                 query = ""
 
             return await _impl_read_email(self.outlook_id, query)
@@ -187,7 +189,7 @@ class UserSession:
                 self.agent_engine = LegacyReActAgent.from_tools(
                     tools=self.tools,
                     llm=Settings.llm,
-                    verbose=True,
+                    verbose=False,  # verbose prints tool arguments and email data to stdout (#39)
                     memory=ChatMemoryBuffer.from_defaults(token_limit=16384)
                 )
                 slog.info(f"[{self.username}] Agent loaded: LegacyReActAgent")
@@ -319,7 +321,7 @@ class UserSession:
         else:
              final_input = (f"{history_str}\nDOMANDA UTENTE: {clean_query}")
 
-        slog.info(f"[{self.username}] {used_mode} -> {clean_query[:40]}...")
+        slog.info(f"[{self.username}] {used_mode} -> query {content(clean_query)}")
 
         # --- EXECUTION FIX: WORKFLOW vs CHAT ENGINE HANDLING ---
         response_obj = None
@@ -343,7 +345,9 @@ class UserSession:
                 response_text = str(response_obj)
 
         except Exception as e:
-            slog.error(f"[{self.username}] Engine execution error: {e}", exc_info=True)
+            # Exception text and traceback can quote the question: only with the debug switch on (#39)
+            slog.error(f"[{self.username}] Engine execution error: {content(str(e), type(e).__name__)}",
+                       exc_info=_logger.LOG_CLIENT_CONTENT)
             response_text = "Sorry, a technical error occurred while processing the request."
 
         self.global_history.append(ChatMessage(role=MessageRole.USER, content=clean_query))

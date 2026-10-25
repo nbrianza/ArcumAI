@@ -151,6 +151,9 @@ namespace ArcumAI.OutlookAddIn.Core
             config.MaxPayloadSizeMB = 30;
             config.LoopbackTimeoutMs = 3600000; // 1 hour for large documents
             config.ShowProcessingNotification = true;
+
+            // Client content in plugin.log: off unless enabled locally (#39)
+            config.LogClientContent = false;
         }
 
         /// <summary>
@@ -189,6 +192,9 @@ namespace ArcumAI.OutlookAddIn.Core
 
             if (appSettings["LogFilePath"] != null && !string.IsNullOrWhiteSpace(appSettings["LogFilePath"]))
                 config.LogFilePath = appSettings["LogFilePath"];
+
+            if (appSettings["LogClientContent"] != null && bool.TryParse(appSettings["LogClientContent"], out bool logContent))
+                config.LogClientContent = logContent;
 
             if (appSettings["UseSecureConnection"] != null && bool.TryParse(appSettings["UseSecureConnection"], out bool useSecure))
                 config.UseSecureConnection = useSecure;
@@ -292,7 +298,7 @@ ServerUrl (string): WebSocket server URL
 
 UseSecureConnection (bool): Use WSS instead of WS
   Default: false
-  Required: true unless the ServerUrl host is exactly localhost, 127.x.x.x or [::1]
+  Required: true unless the ServerUrl starts with wss:// or its host is exactly localhost, 127.x.x.x or [::1]
 
 UserId (string): User identifier for authentication
   Default: Windows username (auto-detected)
@@ -345,6 +351,11 @@ LogLevel (string): Minimum log level to record
 
 LogFilePath (string): Path to log file
   Default: %APPDATA%\ArcumAI\Outlook\logs\plugin.log
+
+LogClientContent (bool): Also write client content (subjects, attachment
+  file names, search queries) to the log. Development only; purge the log
+  files after use. Never pushed by the server.
+  Default: false
 
 EXAMPLE CONFIGURATIONS:
 ======================

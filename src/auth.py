@@ -99,15 +99,42 @@ def update_password(username, new_password):
 
 # --- WebSocket Auth Rate Limiting (per-IP) ---
 _ws_auth_failures: dict[str, list[float]] = {}
+# Time of the last full sweep of _ws_auth_failures. No lock: the only callers
+# run on the event loop, with no await between check and record.
+_ws_auth_last_sweep: float = 0.0
+
+
+def _ws_recent(ip: str, now: float) -> list[float]:
+    """Prunes failures older than WS_AUTH_WINDOW for ip; deletes the key when empty."""
+    attempts = [t for t in _ws_auth_failures.get(ip, []) if now - t < WS_AUTH_WINDOW]
+    if attempts:
+        _ws_auth_failures[ip] = attempts
+    else:
+        _ws_auth_failures.pop(ip, None)
+    return attempts
+
+
+def _ws_sweep_stale(now: float) -> None:
+    """Evicts stale failures for every IP in _ws_auth_failures.
+
+    Uses the same predicate as the throttle check (_ws_recent), so a failure still
+    inside WS_AUTH_WINDOW is never removed. Logs nothing.
+    """
+    global _ws_auth_last_sweep
+    for ip in list(_ws_auth_failures):
+        _ws_recent(ip, now)
+    _ws_auth_last_sweep = now
 
 
 def ws_auth_is_rate_limited(ip: str) -> bool:
     """Returns True if this IP has exceeded WS_AUTH_MAX_ATTEMPTS in the last WS_AUTH_WINDOW seconds."""
     now = time.time()
-    attempts = _ws_auth_failures.get(ip, [])
-    attempts = [t for t in attempts if now - t < WS_AUTH_WINDOW]
-    _ws_auth_failures[ip] = attempts
-    return len(attempts) >= WS_AUTH_MAX_ATTEMPTS
+    # Periodic sweep, at most once per WS_AUTH_WINDOW, so a failure record is
+    # gone by the first connection at or after 2 x WS_AUTH_WINDOW. Also sweeps
+    # when the clock moved backwards, so eviction does not stall.
+    if now - _ws_auth_last_sweep >= WS_AUTH_WINDOW or now < _ws_auth_last_sweep:
+        _ws_sweep_stale(now)
+    return len(_ws_recent(ip, now)) >= WS_AUTH_MAX_ATTEMPTS
 
 
 def ws_auth_record_failure(ip: str) -> None:

@@ -8,7 +8,7 @@ from nicegui import ui, run  # <--- ADDED 'run'
 
 from src.readers import SmartPDFReader
 from src.documents import source_link
-from src.logger import server_log as slog
+from src.logger import server_log as slog, content
 from src.ui.rate_limiter import _check_rate_limit, sanitize_input
 
 _MAGIC_BYTES: dict[str, bytes] = {
@@ -54,7 +54,7 @@ def create_footer(session, user_data, chat_container, mode_display, on_message_s
                     ui.notify(f'Unsupported file type: {file_ext}', type='negative')
                     return
 
-                slog.info(f"[{user_data.get('username', '?')}] UPLOAD START: {filename}")
+                slog.info(f"[{user_data.get('username', '?')}] UPLOAD START: {content(filename, f'ext={file_ext}')}")
                 ui.notify(f'Analyzing {filename}...', type='info')
                 mode_display.text = "⏳ Analyzing File..."
                 mode_display.classes(replace='text-orange-500')

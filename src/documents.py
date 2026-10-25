@@ -23,7 +23,7 @@ from nicegui import app
 
 from src import auth
 from src.config import ARCHIVE_DIR
-from src.logger import server_log as slog
+from src.logger import server_log as slog, content
 
 router = APIRouter()
 
@@ -140,6 +140,24 @@ def source_link(file_path: str | None, filename: str, username: str, role: str,
     return "/documents/" + quote(rel, safe="/")
 
 
+class _SafeFileResponse(FileResponse):
+    """FileResponse whose send errors never carry the document path (#39).
+
+    If the file disappears between the existence check and the send (for example a
+    concurrent re-ingestion), Starlette raises an error that quotes the absolute
+    path, and the server would log it as an ERROR traceback. The path contains the
+    client file name, so the error is replaced by one without it; the original text
+    is logged only with LOG_CLIENT_CONTENT on.
+    """
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        except (OSError, RuntimeError) as e:
+            slog.error(f"Document send failed: {content(str(e), type(e).__name__)}")
+            raise RuntimeError("Document send failed") from None
+
+
 def _deny(request: Request, status_code: int, body: str, reason: str) -> PlainTextResponse:
     client_ip = request.client.host if request.client else "unknown"
     slog.warning(f"Document access denied: {reason} (IP: {client_ip})")
@@ -159,4 +177,4 @@ async def get_document(rel_path: str, request: Request, user: dict | None = Depe
         return _deny(request, 403, "Forbidden", "forbidden")
     if not resolved.is_file():
         return _deny(request, 404, "Not found", "not found")
-    return FileResponse(resolved, headers=_SECURITY_HEADERS)
+    return _SafeFileResponse(resolved, headers=_SECURITY_HEADERS)

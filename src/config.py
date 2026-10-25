@@ -129,6 +129,12 @@ USERS_FILE = BASE_DIR / "users.json"
 # --- 8. PROMPT OPTIMIZATION & PRIVACY ---
 PROMPT_OPTIMIZATION = os.getenv("PROMPT_OPTIMIZATION", "local")  # "local" | "gemini" | "off"
 ENABLE_NER_MASKING = os.getenv("ENABLE_NER_MASKING", "true").lower() == "true"
+# Debug switch (issue #39): when on, client content (subjects, bodies, prompts,
+# queries, file names) is written to server.log through src.logger.content().
+# Off by default; any value other than "true" means off. Development only.
+LOG_CLIENT_CONTENT = os.getenv("LOG_CLIENT_CONTENT", "false").lower() == "true"
+if LOG_CLIENT_CONTENT and os.getenv("ARCUMAI_ENV", "").lower() != "dev":
+    raise ValueError("Invalid config: LOG_CLIENT_CONTENT=true requires ARCUMAI_ENV=dev")
 NER_SCORE_THRESHOLD = _env_float("NER_SCORE_THRESHOLD", "0.35", 0.0, 1.0)  # Low threshold for privacy
 GEMINI_TIMEOUT = _env_float("GEMINI_TIMEOUT", "60.0", 1.0, 3_600.0)
 
