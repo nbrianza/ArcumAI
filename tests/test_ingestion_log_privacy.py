@@ -566,7 +566,8 @@ def test_criterion4_folder_removal_error_logs_type_not_folder_name(tmp_path, mon
     (root / f"Client {MARKER}").mkdir(parents=True)
 
     def _rmtree(path, *args, **kwargs):
-        raise OSError(13, "Access is denied", str(path))
+        # errno 5 (EIO) keeps the class OSError; errno 13 would become PermissionError.
+        raise OSError(5, "Input/output error", str(path))
 
     monkeypatch.setattr(utils_module.shutil, "rmtree", _rmtree)
     utils_module.pulisci_cartelle_vuote(root)
