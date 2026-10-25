@@ -200,3 +200,87 @@ def test_tls_settings_have_expected_types():
     assert isinstance(SSL_CERTFILE, str)
     assert isinstance(SSL_KEYFILE, str)
     assert isinstance(TLS_TERMINATED_UPSTREAM, bool)
+
+
+# --- Issue #54: LOOPBACK_MAX_QUEUED_PER_USER (criterion 5) --------------------
+# Same approach as the login probe above: one fresh interpreter executes a
+# throwaway copy of src/config.py per case, so the in-process src.config is
+# never re-executed. Approved design: default 10, range 1-1000, via _env_int.
+
+_QUEUE_LIMIT_PROBE = r"""
+import importlib.util, json, os, sys
+cases = json.loads(sys.argv[1])
+path = os.path.join(os.getcwd(), "src", "config.py")
+results = {}
+for label, overrides in cases.items():
+    os.environ.pop("LOOPBACK_MAX_QUEUED_PER_USER", None)
+    os.environ.update(overrides)
+    spec = importlib.util.spec_from_file_location("config_probe_q_" + label, path)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        results[label] = {"ok": True,
+                          "value": getattr(mod, "LOOPBACK_MAX_QUEUED_PER_USER", "MISSING")}
+    except Exception as exc:
+        results[label] = {"ok": False, "type": type(exc).__name__, "error": str(exc)}
+print("PROBE_RESULT=" + json.dumps(results))
+"""
+
+_QUEUE_LIMIT_CASES = {
+    "unset": {},
+    "min": {"LOOPBACK_MAX_QUEUED_PER_USER": "1"},
+    "max": {"LOOPBACK_MAX_QUEUED_PER_USER": "1000"},
+    "override": {"LOOPBACK_MAX_QUEUED_PER_USER": "25"},
+    "zero": {"LOOPBACK_MAX_QUEUED_PER_USER": "0"},
+    "negative": {"LOOPBACK_MAX_QUEUED_PER_USER": "-1"},
+    "too_high": {"LOOPBACK_MAX_QUEUED_PER_USER": "1001"},
+    "not_a_number": {"LOOPBACK_MAX_QUEUED_PER_USER": "ten"},
+}
+
+_queue_probe_cache: dict = {}
+
+
+def _queue_probe():
+    if not _queue_probe_cache:
+        import json
+        import os
+        import subprocess
+        import sys
+        from src.config import BASE_DIR
+        env = dict(os.environ)
+        env["ARCUMAI_ENV"] = "dev"
+        proc = subprocess.run(
+            [sys.executable, "-c", _QUEUE_LIMIT_PROBE, json.dumps(_QUEUE_LIMIT_CASES)],
+            cwd=str(BASE_DIR), env=env, capture_output=True, text=True, timeout=300,
+        )
+        assert proc.returncode == 0, f"probe crashed: {proc.stderr[-2000:]}"
+        line = [l for l in proc.stdout.splitlines() if l.startswith("PROBE_RESULT=")][-1]
+        _queue_probe_cache.update(json.loads(line[len("PROBE_RESULT="):]))
+    return _queue_probe_cache
+
+
+def test_ac5_loopback_max_queued_per_user_is_positive_int_in_process():
+    from src.config import LOOPBACK_MAX_QUEUED_PER_USER
+    assert isinstance(LOOPBACK_MAX_QUEUED_PER_USER, int)
+    assert 1 <= LOOPBACK_MAX_QUEUED_PER_USER <= 1000
+
+
+def test_ac5_loopback_max_queued_per_user_default_is_10_when_unset():
+    assert _queue_probe()["unset"] == {"ok": True, "value": 10}
+
+
+def test_ac5_loopback_max_queued_per_user_accepts_range_bounds_and_override():
+    results = _queue_probe()
+    assert results["min"] == {"ok": True, "value": 1}
+    assert results["max"] == {"ok": True, "value": 1000}
+    assert results["override"] == {"ok": True, "value": 25}
+
+
+def test_ac5_loopback_max_queued_per_user_out_of_range_stops_startup_with_invalid_config():
+    results = _queue_probe()
+    for label in ("zero", "negative", "too_high", "not_a_number"):
+        result = results[label]
+        assert result["ok"] is False, f"{label}: config accepted an invalid value ({result})"
+        assert result["type"] == "ValueError", f"{label}: {result}"
+        assert result["error"].startswith("Invalid config:"), f"{label}: {result['error']}"
+        assert "LOOPBACK_MAX_QUEUED_PER_USER" in result["error"], f"{label}: {result['error']}"

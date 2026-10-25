@@ -297,10 +297,20 @@ class OutlookBridgeManager:
             uq.worker_task = asyncio.create_task(self._queue_worker(user_id))
         else:
             uq = self._user_queues[user_id]
-            # Restart worker if it exited unexpectedly (e.g. external task cancellation)
+            # Restart worker if it exited unexpectedly (e.g. external task cancellation).
+            # Runs before the limit check, so a full queue still gets its worker back.
             if uq.worker_task is None or uq.worker_task.done():
                 log.warning(f"Queue[{user_id}]: worker not running — restarting")
                 uq.worker_task = asyncio.create_task(self._queue_worker(user_id))
+            # Per-user limit (#54): refuse instead of holding more emails in memory.
+            # No await between this check and the put below, so it is atomic on the event loop.
+            from src.config import LOOPBACK_MAX_QUEUED_PER_USER
+            depth = uq.queue.qsize()
+            if depth >= LOOPBACK_MAX_QUEUED_PER_USER:
+                log.warning(f"Queue[{user_id}]: refused request_id={_safe_uid(str(request_id))} "
+                            f"depth={depth} limit={LOOPBACK_MAX_QUEUED_PER_USER} (queue full)")
+                await self._send_busy_reply(user_id, request_id, params, LOOPBACK_MAX_QUEUED_PER_USER)
+                return
         uq.sequence += 1
         await uq.queue.put(_EmailTask(
             priority=priority, sequence=uq.sequence,
@@ -308,6 +318,35 @@ class OutlookBridgeManager:
         ))
         log.info(f"Queue[{user_id}]: enqueued req={request_id} seq={uq.sequence} priority={priority} "
                  f"depth={uq.queue.qsize()}")
+
+    async def _send_busy_reply(self, user_id: str, request_id: str, params: dict, limit: int):
+        """Tell the add-in that an email was refused because the user's queue is full.
+        Uses the existing virtual_loopback/response push (no protocol change).
+        If the client is offline the reply is dropped: nothing is written to disk."""
+        response_text = (
+            f"ArcumAI is busy: {limit} of your emails are already waiting to be processed. "
+            f"This email was NOT processed. Please send it again later."
+        )
+        response_params = {
+            "request_id": request_id,
+            "subject": params.get("subject", ""),
+            "conversation_id": params.get("conversation_id", ""),
+            "original_message_id": params.get("original_message_id", ""),
+            "response_text": response_text,
+            "response_html": self._processor._markdown_to_html(response_text),
+        }
+        ws = self.active_connections.get(user_id)
+        if not ws:
+            log.warning(f"Queue[{user_id}]: busy reply for request_id={_safe_uid(str(request_id))} "
+                        f"dropped, client not connected")
+            return
+        try:
+            await ws.send_text(json.dumps({"jsonrpc": "2.0",
+                                           "method": "virtual_loopback/response",
+                                           "params": response_params}))
+        except Exception as e:
+            log.warning(f"Queue[{user_id}]: busy reply for request_id={_safe_uid(str(request_id))} "
+                        f"could not be sent: {type(e).__name__}")
 
     async def _queue_worker(self, user_id: str):
         """Per-user worker: pulls tasks from the priority queue and processes them

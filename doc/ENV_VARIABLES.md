@@ -104,6 +104,7 @@ Note: `WS_API_KEY` is a secret. Set it only in the local `.env` file, which is n
 |----------|------|---------|-------------|
 | `BRIDGE_TIMEOUT` | float | `60.0` | Outlook WebSocket bridge timeout (seconds) |
 | `LOOPBACK_MAX_CONCURRENT` | int | `3` | Max concurrent loopback emails (1-64) |
+| `LOOPBACK_MAX_QUEUED_PER_USER` | int | `10` | Max emails waiting in each user's loopback queue (1-1000), per-user limit: one user's full queue never blocks other users. The email currently held by the worker is not counted, so a user holds at most this value + 1 emails. An email above the limit is not queued; the user gets a reply email saying ArcumAI is busy and the email was not processed (if the client is offline at that moment the reply is dropped and logged, nothing is written to disk). Memory estimate with default size limits (`VSTO_MAX_PAYLOAD_MB` 30): about (10 + 1) x 30 MB = 330 MB per user in the worst case, times the number of users sending large emails at the same time, plus transient copies for the emails being processed (inferred, not measured) |
 | `VSTO_MAX_ATTACHMENT_MB` | int | `25` | Max single attachment size (1-500 MB) |
 | `VSTO_MAX_TOTAL_MB` | int | `50` | Max total attachment size (1-1000 MB) |
 | `VSTO_MAX_PAYLOAD_MB` | int | `30` | Max payload size per request (1-1000 MB) |
