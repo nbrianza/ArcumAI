@@ -45,6 +45,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
 - Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
+- Plugin: a `wss://` ServerUrl (any letter case) is accepted as secure even when `UseSecureConnection` is false; the `ws://`/`wss://` prefix check is case-insensitive (#48)
 - Outlook bridge authentication throttle no longer keeps an entry for every connecting IP; a failure record is gone by the first bridge connection at or after 2 x `WS_AUTH_WINDOW` (#51)
 
 ---

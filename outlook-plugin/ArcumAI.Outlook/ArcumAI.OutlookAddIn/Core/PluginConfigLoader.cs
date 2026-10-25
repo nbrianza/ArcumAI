@@ -292,7 +292,7 @@ ServerUrl (string): WebSocket server URL
 
 UseSecureConnection (bool): Use WSS instead of WS
   Default: false
-  Required: true unless the ServerUrl host is exactly localhost, 127.x.x.x or [::1]
+  Required: true unless the ServerUrl starts with wss:// or its host is exactly localhost, 127.x.x.x or [::1]
 
 UserId (string): User identifier for authentication
   Default: Windows username (auto-detected)
