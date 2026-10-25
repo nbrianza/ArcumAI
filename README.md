@@ -135,6 +135,8 @@ python ingest.py
 
 **Document ownership.** Archived documents are served at `/documents` only to logged-in users. A document belongs to the user whose username matches its first folder under `data_archivio/` (case-insensitive), so drop each user's files into `input_utente/<username>/...`; the folder is carried into the archive. ADMIN users can open every document; other users only their own. Files at the archive root or under a folder that matches no user are ADMIN-only. Usernames must therefore be unique ignoring case. See `doc/decisions/0002-document-ownership-by-archive-folder.md`.
 
+**Chat answers follow the same rule.** RAG retrieval (web chat and Outlook replies) gives non-admin users only text from documents they own; ADMIN users retrieve from every document. Visibility follows the folder recorded when the document was ingested, not its current location in the archive. No re-indexing is needed for documents that were already under `<username>/` when ingested. To make another indexed document visible to its owner: delete it from the index on the Admin page, place it in `input_utente\<username>\`, and let the watcher ingest it (or run `.venv\Scripts\python ingest.py`). Do not use "Re-ingest selected" for this until issue #46 is fixed, because it moves the document to the archive root (ADMIN-only). See `doc/decisions/0004-rag-retrieval-follows-document-ownership.md`.
+
 ### 4. Start the server
 
 ```bash
