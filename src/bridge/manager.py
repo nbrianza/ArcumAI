@@ -289,6 +289,11 @@ class OutlookBridgeManager:
             uq.worker_task = asyncio.create_task(self._queue_worker(user_id))
         else:
             uq = self._user_queues[user_id]
+            # Restart worker if it exited unexpectedly (e.g. external task cancellation).
+            # Runs before the limit check, so a full queue still gets its worker back.
+            if uq.worker_task is None or uq.worker_task.done():
+                log.warning(f"Queue[{user_id}]: worker not running — restarting")
+                uq.worker_task = asyncio.create_task(self._queue_worker(user_id))
             # Per-user limit (#54): refuse instead of holding more emails in memory.
             # No await between this check and the put below, so it is atomic on the event loop.
             from src.config import LOOPBACK_MAX_QUEUED_PER_USER
@@ -298,10 +303,6 @@ class OutlookBridgeManager:
                             f"depth={depth} limit={LOOPBACK_MAX_QUEUED_PER_USER} (queue full)")
                 await self._send_busy_reply(user_id, request_id, params, LOOPBACK_MAX_QUEUED_PER_USER)
                 return
-            # Restart worker if it exited unexpectedly (e.g. external task cancellation)
-            if uq.worker_task is None or uq.worker_task.done():
-                log.warning(f"Queue[{user_id}]: worker not running — restarting")
-                uq.worker_task = asyncio.create_task(self._queue_worker(user_id))
         uq.sequence += 1
         await uq.queue.put(_EmailTask(
             priority=priority, sequence=uq.sequence,
