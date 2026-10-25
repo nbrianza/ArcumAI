@@ -138,8 +138,21 @@ class UserSession:
             FunctionTool.from_defaults(fn=calendar_wrapper, name="tool_get_calendar"),
         ]
 
+    def _current_rag_identity(self):
+        """Re-reads the role from the users file for owner-scoped retrieval (#45).
+
+        Same semantics as src.documents.current_user: a user no longer in the
+        file is non-ADMIN and reads no document (username None).
+        """
+        entry = load_users().get(self.username)
+        if not isinstance(entry, dict):
+            return "", None
+        return entry.get("role", ""), self.username
+
     async def get_rag_engine(self):
-        if not self.rag_engine: self.rag_engine = await run.io_bound(load_rag_engine, self.role)
+        if not self.rag_engine:
+            role, username = self._current_rag_identity()
+            self.rag_engine = await run.io_bound(load_rag_engine, role, username=username)
         return self.rag_engine
 
     async def get_simple_engine(self):
