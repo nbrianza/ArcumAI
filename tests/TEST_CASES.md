@@ -242,7 +242,7 @@ and `src/ui/footer.py` (`_validate_file_content`).
 
 ---
 
-### `test_config.py` — Configuration constants (10 tests)
+### `test_config.py` — Configuration constants (18 tests)
 
 Covers `src/config.py`: type safety and sanity checks for all critical constants.
 
@@ -262,6 +262,10 @@ Covers `src/config.py`: type safety and sanity checks for all critical constants
 | 12 | `test_login_throttle_defaults_are_6_attempts_per_60_seconds` | Without env overrides the defaults are 6 attempts and 60 seconds (fresh interpreter) |
 | 13 | `test_login_throttle_valid_override_is_applied` | In-range env values are applied |
 | 14 | `test_criterion7_out_of_range_login_settings_stop_startup_with_clear_error` | `0`, `-1` and above-maximum values for either setting raise `ValueError` naming the variable and "out of range" at import (fresh interpreter, one subprocess for all cases) |
+| 15 | `test_ac5_loopback_max_queued_per_user_is_positive_int_in_process` | `LOOPBACK_MAX_QUEUED_PER_USER` is an int in 1-1000 (issue #54) |
+| 16 | `test_ac5_loopback_max_queued_per_user_default_is_10_when_unset` | Default is 10 when the variable is unset (fresh interpreter) |
+| 17 | `test_ac5_loopback_max_queued_per_user_accepts_range_bounds_and_override` | 1, 1000 and 25 are accepted |
+| 18 | `test_ac5_loopback_max_queued_per_user_out_of_range_stops_startup_with_invalid_config` | `0`, `-1`, `1001` and `ten` raise `ValueError` starting with `Invalid config:` |
 
 ---
 
@@ -296,11 +300,12 @@ mocked to keep the suite offline-capable. (~15 s)
 
 ---
 
-### `test_bridge_manager.py` — WebSocket bridge manager (18 tests)
+### `test_bridge_manager.py` — WebSocket bridge manager (37 tests)
 
 Covers `src/bridge/manager.py`: connection lifecycle, message routing, future
-resolution, client config, and log-injection safety. Uses mock WebSockets
-(`AsyncMock`).
+resolution, client config, log-injection safety, and the per-user loopback
+queue limit (issue #54). Uses mock WebSockets (`AsyncMock`); queue tests use a
+blocking fake processor and synthetic emails only.
 
 | # | Test | What it checks |
 |---|------|----------------|
@@ -322,6 +327,25 @@ resolution, client config, and log-injection safety. Uses mock WebSockets
 | 16 | `test_safe_uid_strips_newline` | `\n` in a user ID is escaped (log injection prevention) |
 | 17 | `test_safe_uid_strips_carriage_return` | `\r` in a user ID is escaped |
 | 18 | `test_safe_uid_preserves_normal_username` | Normal `user@example.com` string is unchanged |
+| 19 | `test_ac1_email_over_limit_gets_busy_reply_within_10_seconds` | Email over the limit gets one busy `virtual_loopback/response` within 10 s |
+| 20 | `test_ac1_busy_reply_uses_existing_response_fields_only` | Busy reply uses only the six existing response fields (no protocol change) |
+| 21 | `test_ac1_busy_reply_states_the_configured_limit` | Busy text states the configured limit |
+| 22 | `test_ac1_refused_email_is_not_kept_in_queue` | Refused email is not in the queue; depth unchanged |
+| 23 | `test_ac1_refused_email_is_never_processed` | Refused email never reaches the processor |
+| 24 | `test_ac1_email_held_by_worker_is_not_counted` | L waiting plus 1 held are accepted, the next is refused |
+| 25 | `test_ac1_concurrent_burst_never_exceeds_limit_and_loses_nothing` | Burst of 12: depth never above L, each email processed once or refused |
+| 26 | `test_ac2_queued_emails_processed_exactly_once_in_priority_then_fifo_order` | Accepted emails processed once, High then Normal FIFO then Low |
+| 27 | `test_ac2_queue_accepts_again_after_it_drains` | Queue accepts again after draining |
+| 28 | `test_ac3_limit_is_per_user_other_user_is_accepted` | Limit is per user: another user is accepted and acked |
+| 29 | `test_ac4_below_limit_ack_is_unchanged` | Ack below the limit is unchanged |
+| 30 | `test_ac4_ack_is_sent_before_the_busy_reply` | Refused email still gets the ack, before the busy reply |
+| 31 | `test_ac4_below_limit_priority_order_unchanged` | Priority order below the limit unchanged |
+| 32 | `test_ac4_duplicate_below_limit_delivers_cached_result` | Duplicate with cached result is delivered |
+| 33 | `test_ac4_duplicate_with_cached_result_is_delivered_even_when_queue_is_full` | Duplicate check runs before the limit check |
+| 34 | `test_ac4_result_for_disconnected_client_is_still_saved_for_later_delivery` | Offline result still saved for later delivery |
+| 35 | `test_refusal_without_connection_writes_nothing_to_disk` | Refusal while offline writes nothing to disk |
+| 36 | `test_refusal_without_connection_is_logged` | Refusal while offline is logged with the request id |
+| 37 | `test_refusal_log_has_user_request_depth_limit_and_no_email_content` | Refusal log has user, request id, limit; no subject, body or attachment content |
 
 ---
 

@@ -22,6 +22,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Admin ingestion: one run at a time, below-normal priority, timeout reported instead of raised (#29)
 - Plugin persists server-pushed config in `%APPDATA%\ArcumAI\Outlook\server-config.json` (#25)
 - Plugin MAPI property URIs moved to `Core/MapiProperties.cs` (#31); `OutlookDataProvider` created per call (#30)
+- Loopback email queue is bounded per user by `LOOPBACK_MAX_QUEUED_PER_USER` (default 10 waiting emails): an email above the limit is not queued and the sender gets a reply saying ArcumAI is busy and the email was not processed (#54)
 
 ### Security
 
