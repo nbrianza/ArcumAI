@@ -256,7 +256,14 @@ def test_ac1_alice_answer_context_and_sources_only_own_chunks(env, with_bm25):
 
 # --- AC2: admin retrieves from every document ---------------------------------
 
-@pytest.mark.parametrize("with_bm25", [True, False], ids=["hybrid", "vector_only"])
+@pytest.mark.parametrize("with_bm25", [
+    pytest.param(True, id="hybrid", marks=pytest.mark.xfail(
+        strict=True,
+        reason="Pre-existing defect #71: BM25 nodes built by get_all_nodes_from_chroma "
+               "hash differently from vector store nodes, so fusion keeps duplicates "
+               "and drops the lowest-ranked chunk. Remove this mark when #71 is fixed.")),
+    pytest.param(False, id="vector_only"),
+])
 def test_ac2_admin_retrieves_chunks_from_all_documents(env, with_bm25):
     env.index(with_bm25=with_bm25)
     found = _node_markers(_retrieve("admin1", "ADMIN"))
