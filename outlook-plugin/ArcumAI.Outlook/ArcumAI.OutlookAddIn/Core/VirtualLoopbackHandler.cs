@@ -484,5 +484,16 @@ namespace ArcumAI.OutlookAddIn.Core
                 "Send it again when ArcumAI is connected.");
         }
 
+        /// <summary>
+        /// Shown when a send to ArcumAI is cancelled because of an error in the send handler (#68).
+        /// Fixed text: contains no mail data. Shown always, independent of ShowProcessingNotification.
+        /// </summary>
+        public void NotifyHeldOnError()
+        {
+            _mailFactory.ShowToastNotification("ArcumAI",
+                "Your email to ArcumAI was not sent because of an error. It is still open.\n" +
+                "Check the recipients and send it again.");
+        }
+
     }
 }
