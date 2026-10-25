@@ -21,9 +21,9 @@ value stops startup with `ValueError: Invalid config: NAME=value ...`. Ranges ar
 | `STORAGE_SECRET` | string | *(required; ephemeral random value when `ARCUMAI_ENV=dev`)* | NiceGUI session storage secret |
 | `LOGIN_MAX_ATTEMPTS` | int | `6` | Failed web logins allowed per window, counted per client IP and per username (`1` - `1000`). The next attempt within the window is blocked without checking the password |
 | `LOGIN_WINDOW` | int | `60` | Web login throttling window in seconds (`1` - `86400`). A block ends this many seconds after the last failed attempt |
-| `SSL_CERTFILE` | string | *(empty)* | Path to the PEM server certificate (chain). Set together with `SSL_KEYFILE` to serve HTTPS and WSS; see [TLS_SETUP.md](TLS_SETUP.md) |
+| `SSL_CERTFILE` | string | *(empty)* | Path to the PEM server certificate (chain). Set together with `SSL_KEYFILE` to serve HTTPS and WSS; see [TLS_SETUP.md](TLS_SETUP.md). With TLS enabled the session cookie is marked `Secure`, so users must always use the `https://` address |
 | `SSL_KEYFILE` | string | *(empty)* | Path to the PEM private key (not password protected; keep it outside the repository and never commit it). If only one of the two files is set, or a path does not exist, startup stops with a `ValueError` naming the variable |
-| `TLS_TERMINATED_UPSTREAM` | bool | `false` | `true` declares that a reverse proxy in front of ArcumAI terminates TLS. Without TLS and without this flag, a non-loopback `HOST` logs one WARNING at startup (the server still starts) |
+| `TLS_TERMINATED_UPSTREAM` | bool | `false` | `true` declares that a reverse proxy in front of ArcumAI terminates TLS. Without TLS and without this flag, a non-loopback `HOST` logs one WARNING at startup (the server still starts). With `true` the session cookie is marked `Secure`, so users must always use the `https://` address of the proxy; a client that reaches the server directly over plain `http://` cannot keep a login session |
 
 Note: web login throttling uses the client IP seen by the server. Behind a reverse proxy, or when many clients share one IP (NAT), all of them may count as one IP, so a few failed logins can block everyone at that address for `LOGIN_WINDOW` seconds.
 

@@ -19,5 +19,6 @@ ArcumAI is often deployed on an office LAN. Plain HTTP and WebSocket expose logi
 - Default installs (`HOST=0.0.0.0`, no TLS) log a warning at every start until TLS is configured.
 - Certificate provisioning and renewal stay with the administrator; `doc/TLS_SETUP.md` explains the options.
 - `TLS_TERMINATED_UPSTREAM` is a declaration, not a check.
-- Installations that used `ws://` to a remote server stop connecting until TLS is configured.
-- Users cannot send a mail that includes the ArcumAI address while the add-in is disconnected; they send it again after reconnect or remove the ArcumAI address.
+- When TLS is on (direct or declared upstream) the session cookie is marked Secure (#50); with `TLS_TERMINATED_UPSTREAM=true` a client that bypasses the proxy over plain HTTP cannot keep a login session.
+- Installations that used `ws://` to a remote server stop connecting until TLS is configured (#47).
+- Users cannot send a mail that includes the ArcumAI address while the add-in is disconnected; they send it again after reconnect or remove the ArcumAI address (#60).
