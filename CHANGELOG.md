@@ -36,6 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - RAG answers (web chat and Outlook loopback) for non-admin users use only chunks of documents under their own folder, with the same ownership rule as `/documents`; ADMIN retrieval is unchanged. The role is re-read from the user store when the RAG engine is built. No re-indexing needed for documents ingested from `input_utente/<username>/` (#45)
 - Plugin: refuses to connect in cleartext to a non-loopback server (one `[ERROR] Connection refused` log line, no retry); set `UseSecureConnection` to true or use a `wss://` address in `config.json` and restart Outlook. Installations that used `ws://` to a remote server stop connecting until TLS is configured (#47)
 - Plugin: a mail addressed to ArcumAI (in To, CC or BCC) is no longer sent through the mail server while the add-in is disconnected; the whole send is cancelled, the mail stays open and the user is notified, with one `WARNING` log line without mail data (#60)
+- Plugin: a mail addressed to ArcumAI is no longer sent through the mail server when an error occurs in the send handler while the add-in is connected; the send is cancelled, the mail stays open and the user is notified, with one `ERROR` log line without mail data. If the error happens while the ArcumAI address is being removed, the open mail may already lack that address: check the recipients before sending again (#68)
 
 ### Fixed
 

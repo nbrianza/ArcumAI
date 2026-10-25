@@ -257,6 +257,8 @@ When virtual loopback is enabled and the add-in is not connected to the ArcumAI 
 - Send the mail again once the add-in has reconnected (`Connected successfully` in the log); it is then processed as usual.
 - One `WARNING` line is written to `plugin.log` per held send, without subject, body, addresses or file names. It is not written when `EnableLogging` is `false` or `LogLevel` is `ERROR`.
 
+The same applies when the add-in is connected but an error occurs while the mail is handed to ArcumAI: the mail stays open; check the recipients before sending it again.
+
 Mails without the ArcumAI address are sent normally. As an additional measure, administrators can add a mail-server rule that blocks the ArcumAI address, for clients that do not run the add-in.
 
 ### Slow Performance
