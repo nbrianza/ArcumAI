@@ -297,6 +297,9 @@ Raw email → RAG engine (no optimization)
 - `src/bridge.py`: `_route_to_ai_engine()` calls optimizer before routing to RAG
 
 **Logging** (all modes):
+
+Note (#39): since issue #39 subjects, bodies, prompts and masked text are no longer logged by default; the lines below log sizes and request ids instead, and the text only with `LOG_CLIENT_CONTENT=true` (development only, see `doc/ENV_VARIABLES.md`).
+
 - `[INFO]` Incoming email (subject + body)
 - `[INFO]` Optimized prompt (after local/Gemini/off)
 - `[INFO]` NER entity counts (Gemini mode only): `Detected 2 entities: {'CH_IBAN': 1, 'PERSON': 1}`

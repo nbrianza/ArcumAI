@@ -77,6 +77,9 @@ Note: the chat rate limit is counted per logged-in user, is held in memory and i
 | Variable | Type | Default | Allowed Values | Description |
 |----------|------|---------|----------------|-------------|
 | `LOG_LEVEL` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | Python logging level |
+| `LOG_CLIENT_CONTENT` | bool | `false` | `true`, `false` (any other value means `false`) | Development debug switch. `true` writes client content (email subjects and bodies, optimized prompts, chat and search queries, attachment and upload file names, exception text) to `server.log` and stdout. Requires `ARCUMAI_ENV=dev`: with any other `ARCUMAI_ENV` startup stops with a `ValueError`. Startup logs a WARNING while it is on. Lines that are DEBUG (MCP TX payload, masked email, Gemini output) also need `LOG_LEVEL=DEBUG`. Turn it off after use and purge `logs/` (`server.log` and up to 30 rotated files) |
+
+By default the server logs never contain client content: they carry user and request ids, counts, sizes in characters or bytes, durations and a sanitized file extension. Support follows one email with its request id (`req=...` on the server, `ID: ...` in the add-in `plugin.log`). Note: `ARCUMAI_ENV=dev` also allows an ephemeral `STORAGE_SECRET`; if `ARCUMAI_ENV=dev` gains other effects, the `LOG_CLIENT_CONTENT` rule must be revisited.
 
 ### Outlook Bridge Connection Security
 
@@ -94,14 +97,13 @@ Note: `WS_API_KEY` is a secret. Set it only in the local `.env` file, which is n
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `BRIDGE_TIMEOUT` | float | `60.0` | Outlook WebSocket bridge timeout (seconds) |
-| `LOOPBACK_TIMEOUT` | float | `3600.0` | Loopback email processing timeout (seconds) |
 | `LOOPBACK_MAX_CONCURRENT` | int | `3` | Max concurrent loopback emails (1-64) |
 | `VSTO_MAX_ATTACHMENT_MB` | int | `25` | Max single attachment size (1-500 MB) |
 | `VSTO_MAX_TOTAL_MB` | int | `50` | Max total attachment size (1-1000 MB) |
 | `VSTO_MAX_PAYLOAD_MB` | int | `30` | Max payload size per request (1-1000 MB) |
 | `VSTO_ARCUMAI_EMAIL` | string | `assistant@arcumai.ch` | Email address for loopback replies |
 | `VSTO_ARCUMAI_DISPLAY_NAME` | string | `ArcumAI Assistant` | Display name for loopback sender |
-| `VSTO_LOOPBACK_TIMEOUT_MS` | int | `3600000` | Loopback timeout in milliseconds |
+| `VSTO_LOOPBACK_TIMEOUT_MS` | int | `3600000` | Timeout applied to one loopback email: how long the Outlook add-in waits for the answer before it puts a timeout reply in the inbox (10000-86400000 ms, 1 hour by default). Pushed to the add-in at `client/identify`. The server keeps processing the email after it expires. |
 | `VSTO_ENABLE_VIRTUAL_LOOPBACK` | string | `true` | Enable virtual loopback (`true`/`false`) |
 | `VSTO_SHOW_NOTIFICATION` | string | `true` | Show processing notification (`true`/`false`) |
 
@@ -148,7 +150,7 @@ The C# plugin does **not** read `.env` files. Configuration is loaded from (in p
 | Key | Type | Default | Validation | Description |
 |-----|------|---------|------------|-------------|
 | `ServerUrl` | string | `ws://localhost:8080` | Must start with `ws://` or `wss://` | WebSocket server URL |
-| `UseSecureConnection` | bool | `false` | Must be `true` unless the `ServerUrl` host is exactly `localhost`, `127.x.x.x` or `[::1]` | Use secure WebSocket (wss://) |
+| `UseSecureConnection` | bool | `false` | Must be `true` unless the `ServerUrl` starts with `wss://` or its host is exactly `localhost`, `127.x.x.x` or `[::1]`; otherwise the add-in refuses to connect and logs `[ERROR] Connection refused: ...` (fix the setting, restart Outlook) | Use secure WebSocket (wss://) |
 | `UserId` | string | *(Windows username)* | Auto-detected if empty | User identifier |
 | `AutoReconnect` | bool | `true` | — | Auto-reconnect on disconnect |
 | `ReconnectDelayMs` | int | `5000` | >= 1000 | Delay between reconnection attempts (ms) |
@@ -171,6 +173,7 @@ The C# plugin does **not** read `.env` files. Configuration is loaded from (in p
 | `EnableLogging` | bool | `true` | — | Enable file logging |
 | `LogLevel` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` | Minimum log level |
 | `LogFilePath` | string | `%APPDATA%\ArcumAI\Outlook\logs\plugin.log` | Valid path or empty | Log file location |
+| `LogClientContent` | bool | `false` | — | Development debug switch, local only (`App.config` or `config.json`, never pushed by the server). `true` writes email subjects, attachment file names and search queries to `plugin.log`; startup logs a WARNING while it is on. Turn it off after use and delete `plugin.log` and `plugin.log.old` |
 
 ### Virtual Loopback
 

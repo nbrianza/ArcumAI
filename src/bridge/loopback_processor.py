@@ -8,7 +8,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from src.logger import server_log as log
+import src.logger as _logger
+from src.logger import server_log as log, content, safe_ext
 from src.bridge.pending_results import PendingResultStore
 
 
@@ -44,12 +45,13 @@ class LoopbackProcessor:
                                VSTO_MAX_TOTAL_MB as max_total_attachments_mb
 
         try:
-            log.info(f"VirtualLoopback [{user_id}]: Processing | Subject='{subject}' | "
+            log.info(f"VirtualLoopback [{user_id}]: Processing req={request_id} | Subject {content(subject)} | "
+                     f"Body {content(body)} | "
                      f"Attachments={len(attachments)} | Skipped={len(skipped_attachments)} | CC={len(cc_recipients)}")
 
             # Extract text from each attachment
             attachment_texts = []
-            for att in attachments:
+            for i, att in enumerate(attachments, start=1):
                 try:
                     att_text = self._process_attachment(att)
                     if att_text:
@@ -57,7 +59,8 @@ class LoopbackProcessor:
                         attachment_texts.append(f"--- FILE: {fname} ---\n{att_text}\n--- END FILE ---")
                 except Exception as e:
                     fname = att.get("file_name", "?")
-                    log.error(f"VirtualLoopback [{user_id}]: Error processing attachment {fname}: {e}")
+                    log.error(f"VirtualLoopback [{user_id}]: Error processing attachment #{i} "
+                              f"({content(fname, f'ext={safe_ext(fname)}')}): {content(str(e), type(e).__name__)}")
                     attachment_texts.append(f"--- FILE: {fname} ---\n[Read error: {e}]\n--- END ---")
 
             # Build attachment context (document text only, NOT the email body)
@@ -70,7 +73,8 @@ class LoopbackProcessor:
                     + ", ".join(skipped_attachments) + "]"
                 )
                 attachment_context = (attachment_context + "\n\n" + skipped_note).strip() if attachment_context else skipped_note
-                log.warning(f"VirtualLoopback [{user_id}]: {len(skipped_attachments)} attachment(s) were skipped: {skipped_attachments}")
+                log.warning(f"VirtualLoopback [{user_id}]: {len(skipped_attachments)} attachment(s) were skipped "
+                            f"{content(skipped_attachments, '')}")
 
             # If the user attached files but ALL were skipped, return a clear error immediately.
             # Do not fall back to RAG silently, as the user clearly wanted document analysis.
@@ -96,7 +100,7 @@ class LoopbackProcessor:
                     await ws.send_text(json.dumps({"jsonrpc": "2.0",
                                                    "method": "virtual_loopback/response",
                                                    "params": response_params}))
-                    log.info(f"VirtualLoopback [{user_id}]: Sent size-limit error response for '{subject}'")
+                    log.info(f"VirtualLoopback [{user_id}]: Sent size-limit error response for req={request_id}")
                 else:
                     await self._pending.save(user_id, request_id, conversation_id, response_params)
                 return
@@ -104,7 +108,8 @@ class LoopbackProcessor:
             # Route to AI engine (body and attachment_context are kept separate)
             has_real_attachments = has_attachments and len(attachments) > 0
             response_text = await self._route_to_ai_engine(
-                user_id, subject, body, attachment_context, use_rag=not has_real_attachments
+                user_id, subject, body, attachment_context, use_rag=not has_real_attachments,
+                request_id=request_id,
             )
 
             # Add CC disclaimer if needed
@@ -128,13 +133,15 @@ class LoopbackProcessor:
                 await ws.send_text(json.dumps({"jsonrpc": "2.0",
                                                "method": "virtual_loopback/response",
                                                "params": response_params}))
-                log.info(f"VirtualLoopback [{user_id}]: Response delivered via WebSocket for '{subject}'")
+                log.info(f"VirtualLoopback [{user_id}]: Response delivered via WebSocket for req={request_id}")
             else:
                 await self._pending.save(user_id, request_id, conversation_id, response_params)
-                log.info(f"VirtualLoopback [{user_id}]: Client offline — result stored for '{subject}'")
+                log.info(f"VirtualLoopback [{user_id}]: Client offline — result stored for req={request_id}")
 
         except Exception as e:
-            log.error(f"VirtualLoopback [{user_id}]: Processing failed: {e}", exc_info=True)
+            # Exception text and traceback can quote client input: only with the debug switch on (#39)
+            log.error(f"VirtualLoopback [{user_id}]: Processing failed req={request_id}: "
+                      f"{content(str(e), type(e).__name__)}", exc_info=_logger.LOG_CLIENT_CONTENT)
 
             # Send error response (or store if client is offline)
             error_params = {
@@ -168,7 +175,8 @@ class LoopbackProcessor:
         from src.config import VSTO_MAX_ATTACHMENT_MB
         max_encoded_len = int(VSTO_MAX_ATTACHMENT_MB * 1024 * 1024 * 1.34)
         if len(content_b64) > max_encoded_len:
-            log.warning(f"VirtualLoopback: attachment '{file_name}' exceeds size guard ({VSTO_MAX_ATTACHMENT_MB} MB), skipping decode")
+            log.warning(f"VirtualLoopback: attachment ({content(file_name, f'ext={safe_ext(file_name)}')}, "
+                        f"{len(content_b64)} encoded chars) exceeds size guard ({VSTO_MAX_ATTACHMENT_MB} MB), skipping decode")
             return f"[Attachment too large to process server-side: {file_name}]"
 
         file_bytes = base64.b64decode(content_b64)
@@ -240,7 +248,8 @@ class LoopbackProcessor:
         subject: str,
         body: str,
         attachment_context: str = "",
-        use_rag: bool = True
+        use_rag: bool = True,
+        request_id: str = "",
     ) -> str:
         """Route the loopback request to the appropriate AI engine.
 
@@ -269,13 +278,15 @@ class LoopbackProcessor:
 
         if use_rag:
             # No attachments: optimise the email body as a RAG search query
-            log.info(f"VirtualLoopback [{user_id}]: Incoming email | Subject='{subject}' | Body ({len(body)} chars):\n{body}")
+            log.info(f"VirtualLoopback [{user_id}]: Incoming email req={request_id} | Subject {content(subject)} | "
+                     f"Body {content(body)} | Attachment context ({len(attachment_context)} chars)")
 
             try:
                 optimized_query = await optimize_prompt_for_rag(subject, body)
-                log.info(f"VirtualLoopback [{user_id}]: Optimized prompt:\n{optimized_query}")
+                log.info(f"VirtualLoopback [{user_id}]: Optimized prompt: {content(optimized_query)}")
             except Exception as e:
-                log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed ({e}), using raw email as fallback")
+                log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed "
+                            f"({content(str(e), type(e).__name__)}), using raw email as fallback")
                 optimized_query = f"Email Subject: {subject}\n\n{body}"
 
             query = f"@rag {optimized_query}"
@@ -285,13 +296,15 @@ class LoopbackProcessor:
             # Has attachments: body = question, attachment_context = document text
             # The body goes through optimize_prompt_for_rag to strip email noise and extract the
             # core instruction (NER masking also applied if configured).
-            log.info(f"VirtualLoopback [{user_id}]: Incoming email with attachments | Subject='{subject}' | "
-                     f"Body ({len(body)} chars) | Attachment context ({len(attachment_context)} chars)")
+            log.info(f"VirtualLoopback [{user_id}]: Incoming email with attachments req={request_id} | "
+                     f"Subject {content(subject)} | Body {content(body)} | "
+                     f"Attachment context ({len(attachment_context)} chars)")
             try:
                 optimized_instruction = await optimize_prompt_for_rag(subject, body)
-                log.info(f"VirtualLoopback [{user_id}]: Optimized instruction:\n{optimized_instruction}")
+                log.info(f"VirtualLoopback [{user_id}]: Optimized instruction: {content(optimized_instruction)}")
             except Exception as e:
-                log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed ({e}), using raw body as fallback")
+                log.warning(f"VirtualLoopback [{user_id}]: Prompt optimization failed "
+                            f"({content(str(e), type(e).__name__)}), using raw body as fallback")
                 optimized_instruction = f"Subject: {subject}\n\n{body}"
 
             query = optimized_instruction          # What the user wants done with the document(s)
@@ -305,7 +318,8 @@ class LoopbackProcessor:
             log.info(f"VirtualLoopback [{user_id}]: AI responded via {used_mode} mode")
             return response_text
         except Exception as e:
-            log.error(f"VirtualLoopback [{user_id}]: AI engine error: {e}", exc_info=True)
+            log.error(f"VirtualLoopback [{user_id}]: AI engine error req={request_id}: "
+                      f"{content(str(e), type(e).__name__)}", exc_info=_logger.LOG_CLIENT_CONTENT)
             return f"Error during AI processing: {str(e)}"
 
     def _build_cc_disclaimer(self, cc_recipients: list) -> str:

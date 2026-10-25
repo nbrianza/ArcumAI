@@ -123,6 +123,139 @@ Issue #44 (eviction of stale failure records; owner decision: a stale record sta
 
 ---
 
+### `test_log_privacy.py`: No client content in server and add-in logs, issue #39 (74 tests)
+
+Synthetic marker `ZZ-SYNTHETIC-MARKER-123` in subject, body, CC address, attachment name,
+attachment text, skipped entry, optimizer output, exception text and search query. The
+`ArcumServer` and `ArcumIngestion` handlers are swapped for a list handler at DEBUG (DEBUG
+includes INFO, so criteria 1 and 2 are proven together); a record leaks if its message, args
+or formatted exception contain `synthetic-marker` (case-insensitive); stdout is checked with
+`capsys`. `load_users`, the AI engines and the pending-results store are faked, so no real
+data, model or `temp/` directory is used. The content switch is only turned on with
+`monkeypatch` on `src.logger.LOG_CLIENT_CONTENT`; config defaults and the refusal outside dev
+run in a subprocess. Not covered at runtime: the NiceGUI upload and admin closures (static
+guard instead, decision D3) and the C# add-in (static checks; runtime evidence is the CI
+msbuild step only).
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1-9 | `test_criterion1_2_loopback_email_marker_not_logged_at_debug[case]` | Loopback with no attachment, `.txt` attachment, read error, skipped entry, all skipped, oversized, client offline; optimizer success and failure: no marker in any record |
+| 10-18 | `test_criterion6_loopback_logs_request_id_for_correlation[case]` | Same cases: the request id is logged |
+| 19 | `test_criterion1_manager_send_email_path_marker_not_logged` | `handle_incoming_message` RX preview, "Email received" and enqueue lines; request id logged |
+| 20 | `test_criterion2_gemini_optimizer_missed_entity_not_logged_at_debug` | A PII entity missed by masking is not logged by the Gemini optimizer at DEBUG |
+| 21 | `test_d6_web_chat_question_not_logged` | The web chat question is not logged (decision D6) |
+| 22 | `test_criterion4_short_search_query_and_result_not_logged` | Outlook search: TX payload with the query and RX result with email data not logged |
+| 23 | `test_criterion4_complex_search_query_autofix_not_logged` | AUTO-FIX warning still emitted, without the query |
+| 24-33 | `test_criterion3_safe_ext_returns_sanitized_extension[name]` | `safe_ext`: lower-cased known extension, otherwise `other` (allow-list since the owner decision on PR #67; `archive.abcdefgh` now gives `other`) |
+| 34 | `test_static_guard_self_test_flags_raw_and_allows_wrapped_values` | Self-test of the AST guard |
+| 35 | `test_criterion1_to_4_static_guard_no_client_value_in_server_log_calls_outside_content` | No `server_log` call in `src/` interpolates a client value outside `content()`, `len()` or `safe_ext()` |
+| 36 | `test_criterion3_upload_and_admin_log_lines_drop_file_names_but_keep_the_action` | Upload, delete and re-ingest lines have no file name but still log user and action |
+| 37 | `test_d5_legacy_react_agent_is_not_verbose` | `LegacyReActAgent.from_tools` is not `verbose=True` (decision D5) |
+| 38-41 | `test_switch_content_*` | `content()`: `<N chars>` or summary when off, `repr` when on, newlines escaped |
+| 42-43 | `test_switch_startup_warning_once_when_on`, `test_switch_no_startup_warning_when_off` | `warn_if_content_logging` |
+| 44 | `test_switch_server_startup_calls_warning_and_reports_content_logging_state` | `main_nice.py` calls the warning and reports "Content logging" |
+| 45-51 | `test_switch_off_by_default_and_fail_safe_parsing[label]` | Unset, `false`, `1`, `yes`, typo give off |
+| 52-53 | `test_switch_on_with_true_in_dev[label]` | `true`/`TRUE` with `ARCUMAI_ENV=dev` give on |
+| 54-55 | `test_switch_refuses_to_start_when_on_outside_dev[label]` | `true` without dev raises `ValueError` naming `LOG_CLIENT_CONTENT` |
+| 56 | `test_switch_off_by_default_in_fresh_server_process` | Fresh process: flag off, `content()` redacts |
+| 57-61 | `test_switch_on_*` | When on: subject, body, query, skipped file name and request id are logged; body newlines escaped; RX preview and chat query logged |
+| 62 | `test_switch_not_pushed_to_addin_in_client_config` | No content-logging key in the `client/identify` config block |
+| 63 | `test_addin_static_guard_self_test` | Self-test of the C# guard |
+| 64 | `test_criterion5_addin_log_calls_do_not_interpolate_subject_file_name_or_query` | Five add-in files: no subject, file name, query (or `ex.Message` in `AttachmentExtractor`) outside `PluginConfig.Content` |
+| 65-69 | `test_criterion5_6_addin_steps_are_correlated_by_request_id[...]` | Processing, skipped, timeout, response and inject lines carry the request id |
+| 70-74 | `test_addin_switch_*`, `test_addin_app_config_*`, `test_addin_startup_*` | `LogClientContent` property and `Content` helper, default false, read from `App.config`, not server-managed, startup WARNING |
+
+---
+
+### `test_document_send_error_privacy.py`: No document path in `/documents` send errors, issue #39 (4 tests)
+
+Tester finding S2 on PR #58: if a document disappears between the existence check and
+the send, Starlette raises an error quoting the absolute path, which the server logs as an
+ERROR traceback. The router runs on a bare FastAPI app with `current_user` overridden and a
+synthetic archive under `tmp_path`; the race is simulated by patching `Path.is_file` or
+`anyio.open_file`. A leak is `synthetic-marker` in the raised traceback or in an
+`ArcumServer` record.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_s2_file_removed_before_send_error_has_no_path` | File gone before Starlette stats it: no path in the error or the log; one `Document send failed` ERROR |
+| 2 | `test_s2_file_removed_before_open_error_has_no_path` | File gone before it is opened (`OSError` quoting the path): no path in the error or the log |
+| 3 | `test_s2_switch_on_logs_the_original_error_text` | With `LOG_CLIENT_CONTENT` on, the original error text is logged |
+| 4 | `test_s2_normal_download_still_works` | A normal download still returns the file |
+
+---
+
+### `test_log_privacy_tracebacks.py`: Exception text and tracebacks only with the content switch, issue #39 (28 tests)
+
+Owner decisions on PR #67. Each error line is driven by raising a synthetic exception
+whose message carries `ZZ-SYNTHETIC-MARKER-123`. Switch off: the line logs the exception
+type, no traceback, and no record contains the marker. Switch on (`monkeypatch` on
+`src.logger.LOG_CLIENT_CONTENT`): the exception text and the traceback are logged.
+Fixtures and fakes are imported from `test_log_privacy.py`. The add-in lines are static
+source checks only (runtime evidence is the CI msbuild step).
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1-2 | `test_processing_failed_*` | `loopback_processor.py` "Processing failed" (with request id) |
+| 3-4 | `test_ai_engine_error_*` | `loopback_processor.py` "AI engine error" |
+| 5-6 | `test_engine_execution_error_*` | `session.py` "Engine execution error" |
+| 7-11 | `test_addin_exception_lines_log_type_only_unless_switch_on[...]` | Add-in `{ex}` lines in `VirtualLoopbackHandler.cs`, `OutlookMailFactory.cs`, `ThisAddIn.cs` (3): exception text and stack trace only inside `PluginConfig.Content`, type logged |
+| 12 | `test_addin_exception_guard_self_test` | Self-test of the add-in check |
+| 13-18 | `test_manager_*[switch_off/on]` | `manager.py` "Critical Bridge Error", "Error parsing message", queue "worker error" |
+| 19-22 | `test_ner_*[switch_off/on]` | `ner_masking.py` "Masking failed" and "De-anonymization failed"; return values unchanged |
+| 23-28 | `test_prompt_optimizer_*[switch_off/on]` | `prompt_optimizer.py` "Local LLM failed", "NER masking failed", "Gemini API failed" (tester point O1) |
+
+---
+
+### `test_safe_ext_allow_list.py`: `safe_ext` allow-list, issue #39 (25 tests)
+
+Owner decision on PR #67: only known extensions reach default logs; everything else is
+the fixed placeholder `other`.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1-11 | `test_known_extensions_are_logged[ext]` | Known formats (`.pdf`, `.docx`, `.msg`, `.pptx`, ...) are logged, also from upper case |
+| 12-22 | `test_unknown_or_malformed_extensions_become_placeholder[name]` | Trailing whitespace, line breaks, trailing dot, unknown short suffix, marker as suffix, no extension, empty, `None` give `other` |
+| 23 | `test_placeholder_never_carries_input` | The result never contains input text |
+| 24 | `test_allow_list_entries_are_plain_lower_case_extensions` | Every list entry is a plain lower-case extension |
+| 25 | `test_addin_safe_ext_uses_the_same_allow_list` | `AttachmentExtractor.SafeExtensions` equals `SAFE_EXTENSIONS` and `SafeExt` uses it (static) |
+
+---
+
+### `test_ws_auth_throttle.py`: Outlook bridge auth throttle eviction, issue #51 (20 tests)
+
+Covers `ws_auth_is_rate_limited` and `ws_auth_record_failure` in `src/auth.py`. A bridge
+connection is modelled by a call to `ws_auth_is_rate_limited` (what `outlook_endpoint`
+runs before authenticating), a failed authentication by a following `ws_auth_record_failure`.
+Synthetic IPs only (`10.0.51.0/24`, `10.51.0.0/16`); a fake clock replaces `time.time` and
+`time.monotonic`. The autouse fixture clears `_ws_auth_failures` and resets
+`_ws_auth_last_sweep` (when it exists). Retention bound: 2 x `WS_AUTH_WINDOW`.
+Not covered: `outlook_endpoint` end to end (no WebSocket harness); criterion 6 is a static
+check of `main_nice.py`.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_ws_evict_criterion1_clean_connection_leaves_no_entry` | A connection with no failure stores no key |
+| 2 | `test_ws_evict_criterion1_repeated_clean_connections_leave_no_entry` | Repeated clean connections store no key |
+| 3 | `test_ws_evict_criterion1_entry_removed_when_last_failure_expires` | An IP whose failures expired is removed by its own check, not kept as an empty list |
+| 4 | `test_ws_evict_criterion2_stale_failures_removed_after_connection_from_other_ip` | After 2 x window + 1, a connection from another IP evicts the first IP |
+| 5 | `test_ws_evict_criterion2_blocked_ip_evicted_after_bound` | Same, for an IP that was blocked |
+| 6 | `test_ws_evict_criterion2_stale_failures_removed_when_next_connection_fails_too` | Same, when the later connection also fails |
+| 7 | `test_ws_evict_criterion3_thousand_clean_ips_leave_at_most_one_entry` | 1000 clean IPs, advance, one more connection: at most 1 entry |
+| 8 | `test_ws_evict_criterion3_thousand_clean_ips_store_nothing_even_before_bound` | 1000 clean IPs store nothing at all |
+| 9 | `test_ws_evict_criterion3_thousand_failed_ips_leave_at_most_the_new_one` | 1000 failed IPs, advance, one more connection: at most the new IP |
+| 10 | `test_ws_evict_criterion4_fresh_failures_survive_forced_sweep_and_still_block` | A sweep forced at `WS_AUTH_WINDOW - 1` keeps fresh failures; IP still blocked |
+| 11 | `test_ws_evict_criterion4_blocked_exactly_after_max_attempts` | Not blocked at `WS_AUTH_MAX_ATTEMPTS - 1`, blocked at `WS_AUTH_MAX_ATTEMPTS` |
+| 12 | `test_ws_evict_criterion4_block_holds_until_window_ends_then_lifts` | Block holds at window - 1 with other traffic, lifts after the window |
+| 13 | `test_ws_evict_criterion4_block_holds_for_whole_window_under_continuous_traffic` | With background traffic, the block and its records hold for the whole window |
+| 14 | `test_ws_evict_criterion5_no_record_older_than_two_windows_under_continuous_traffic` | After every connection over 3 windows, no timestamp older than 2 x `WS_AUTH_WINDOW` |
+| 15 | `test_ws_evict_criterion5_eviction_still_happens_after_clock_moves_backwards` | Edge case (D4): eviction keeps working after the wall clock is set back |
+| 16 | `test_ws_evict_cleanup_logs_no_ip` | Eviction logs no IP |
+| 17-19 | `test_ws_evict_criterion6_close_codes_and_reasons_unchanged` (3 cases) | `main_nice.py` still closes with 4002, 4003, 4001 and the same reasons |
+| 20 | `test_ws_evict_criterion6_endpoint_still_uses_throttle_functions` | `outlook_endpoint` still calls the check once and records failures in both paths |
+
+---
+
 ### `test_rate_limiter.py` — Input sanitization & per-user rate limiting (9 tests)
 
 Covers `src/ui/rate_limiter.py`: control-character stripping, length capping,

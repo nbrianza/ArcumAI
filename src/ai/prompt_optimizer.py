@@ -9,7 +9,8 @@ from src.config import (
     PROMPT_OPTIMIZATION, ENABLE_NER_MASKING, NER_SCORE_THRESHOLD,
     LLM_MODEL_NAME, CONTEXT_WINDOW, GEMINI_TIMEOUT
 )
-from src.logger import server_log as slog
+import src.logger as _logger
+from src.logger import server_log as slog, content
 
 
 _gemini_optimizer = None
@@ -92,7 +93,8 @@ async def _optimize_with_local_llm(subject: str, body: str) -> str:
         slog.info(f"PromptOptimization: Local LLM completed ({len(optimized)} chars)")
         return optimized
     except Exception as e:
-        slog.error(f"PromptOptimization: Local LLM failed: {e}", exc_info=True)
+        slog.error(f"PromptOptimization: Local LLM failed: {content(str(e), type(e).__name__)}",
+                   exc_info=_logger.LOG_CLIENT_CONTENT)
         # Fallback to raw email
         return f"Email Subject: {subject}\n\n{body}"
 
@@ -125,12 +127,13 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
                 entity_counts = anonymization_metadata.get("entity_counts", {})
                 if entity_counts:
                     slog.info(f"PromptOptimization: Masked PII before Gemini: {entity_counts}")
-                    slog.debug(f"PromptOptimization: Masked email text:\n{masked_email}")
+                    slog.debug(f"PromptOptimization: Masked email: {content(masked_email)}")
                 else:
                     slog.debug("PromptOptimization: No PII detected in email")
 
         except Exception as e:
-            slog.error(f"PromptOptimization: NER masking failed: {e}", exc_info=True)
+            slog.error(f"PromptOptimization: NER masking failed: {content(str(e), type(e).__name__)}",
+                       exc_info=_logger.LOG_CLIENT_CONTENT)
             slog.warning("PromptOptimization: Sending unmasked to Gemini (PRIVACY RISK)")
             masked_email = raw_email
     else:
@@ -166,7 +169,7 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
         response = await asyncio.wait_for(llm.acomplete(meta_prompt), timeout=GEMINI_TIMEOUT)
         masked_optimized = str(response).strip()
         slog.info(f"PromptOptimization: Gemini completed ({len(masked_optimized)} chars)")
-        slog.debug(f"PromptOptimization: Gemini output (before unmask):\n{masked_optimized}")
+        slog.debug(f"PromptOptimization: Gemini output (before unmask): {content(masked_optimized)}")
 
         # Step 3: Restore PII if we masked it
         if ENABLE_NER_MASKING and anonymization_metadata:
@@ -176,13 +179,15 @@ async def _optimize_with_gemini(subject: str, body: str) -> str:
                 slog.debug("PromptOptimization: PII restored after Gemini")
                 return optimized
             except Exception as e:
-                slog.warning(f"PromptOptimization: De-anonymization failed ({e}), returning masked result")
+                slog.warning(f"PromptOptimization: De-anonymization failed ({content(str(e), type(e).__name__)}), "
+                             f"returning masked result")
                 return masked_optimized
         else:
             return masked_optimized
 
     except Exception as e:
-        slog.error(f"PromptOptimization: Gemini API failed: {e}", exc_info=True)
+        slog.error(f"PromptOptimization: Gemini API failed: {content(str(e), type(e).__name__)}",
+                   exc_info=_logger.LOG_CLIENT_CONTENT)
         # Fallback to raw email (unmasked)
         slog.warning("PromptOptimization: Falling back to raw email (no optimization)")
         return raw_email

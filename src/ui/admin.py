@@ -16,7 +16,7 @@ from pathlib import Path
 from nicegui import ui, app, run
 
 from src.config import BASE_DIR, INBOX_DIR, ARCHIVE_DIR, COLLECTION_NAME, DB_PATH, INGEST_TIMEOUT_SEC
-from src.logger import server_log as slog
+from src.logger import server_log as slog, content, safe_ext
 
 _ingestion_lock = threading.Lock()
 
@@ -205,7 +205,9 @@ def create_admin_page():
                             if chunk_ids:
                                 n = await run.io_bound(_delete_document_chunks, chunk_ids)
                                 total += n
-                                slog.info(f"[{username}] Deleted {n} chunks for {row['filename']}")
+                                doc_ext = safe_ext(row['filename'])
+                                slog.info(f"[{username}] Deleted {n} chunks for 1 document "
+                                          f"({content(row['filename'], f'ext={doc_ext}')})")
                         ui.notify(f'Deleted {total} chunks from {len(selected)} document(s).', type='positive')
                         table.selected.clear()
                         await refresh_table()
@@ -233,7 +235,8 @@ def create_admin_page():
                                     import shutil
                                     INBOX_DIR.mkdir(parents=True, exist_ok=True)
                                     shutil.copy2(str(full), str(INBOX_DIR / full.name))
-                                    slog.info(f"[{username}] Queued re-ingest: {full.name}")
+                                    slog.info(f"[{username}] Queued re-ingest: 1 file "
+                                              f"({content(full.name, f'ext={safe_ext(full.name)}')})")
 
                         ui.notify('Running ingestion...', type='info')
                         output = await run.io_bound(_run_ingestion)
