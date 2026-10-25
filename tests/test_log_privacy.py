@@ -432,7 +432,7 @@ def test_criterion4_complex_search_query_autofix_not_logged(server_records, fake
     ("CONTRACT.PDF", ".pdf"),
     (f"{MARKER}.txt", ".txt"),
     ("archive.tar.gz", ".gz"),
-    ("archive.abcdefgh", ".abcdefgh"),       # 8 characters: allowed
+    ("archive.abcdefgh", "other"),           # not a known extension (allow-list, owner decision on PR #67)
     ("archive.abcdefghi", "other"),          # 9 characters: too long
     (f"report.{MARKER}", "other"),           # the suffix itself would leak content
     (MARKER, "other"),                       # no extension

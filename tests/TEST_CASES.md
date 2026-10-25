@@ -146,7 +146,7 @@ msbuild step only).
 | 21 | `test_d6_web_chat_question_not_logged` | The web chat question is not logged (decision D6) |
 | 22 | `test_criterion4_short_search_query_and_result_not_logged` | Outlook search: TX payload with the query and RX result with email data not logged |
 | 23 | `test_criterion4_complex_search_query_autofix_not_logged` | AUTO-FIX warning still emitted, without the query |
-| 24-33 | `test_criterion3_safe_ext_returns_sanitized_extension[name]` | `safe_ext`: lower-cased 1-8 alphanumeric suffix, otherwise `other` |
+| 24-33 | `test_criterion3_safe_ext_returns_sanitized_extension[name]` | `safe_ext`: lower-cased known extension, otherwise `other` (allow-list since the owner decision on PR #67; `archive.abcdefgh` now gives `other`) |
 | 34 | `test_static_guard_self_test_flags_raw_and_allows_wrapped_values` | Self-test of the AST guard |
 | 35 | `test_criterion1_to_4_static_guard_no_client_value_in_server_log_calls_outside_content` | No `server_log` call in `src/` interpolates a client value outside `content()`, `len()` or `safe_ext()` |
 | 36 | `test_criterion3_upload_and_admin_log_lines_drop_file_names_but_keep_the_action` | Upload, delete and re-ingest lines have no file name but still log user and action |
@@ -204,6 +204,21 @@ source checks only (runtime evidence is the CI msbuild step).
 | 13-18 | `test_manager_*[switch_off/on]` | `manager.py` "Critical Bridge Error", "Error parsing message", queue "worker error" |
 | 19-22 | `test_ner_*[switch_off/on]` | `ner_masking.py` "Masking failed" and "De-anonymization failed"; return values unchanged |
 | 23-28 | `test_prompt_optimizer_*[switch_off/on]` | `prompt_optimizer.py` "Local LLM failed", "NER masking failed", "Gemini API failed" (tester point O1) |
+
+---
+
+### `test_safe_ext_allow_list.py`: `safe_ext` allow-list, issue #39 (25 tests)
+
+Owner decision on PR #67: only known extensions reach default logs; everything else is
+the fixed placeholder `other`.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1-11 | `test_known_extensions_are_logged[ext]` | Known formats (`.pdf`, `.docx`, `.msg`, `.pptx`, ...) are logged, also from upper case |
+| 12-22 | `test_unknown_or_malformed_extensions_become_placeholder[name]` | Trailing whitespace, line breaks, trailing dot, unknown short suffix, marker as suffix, no extension, empty, `None` give `other` |
+| 23 | `test_placeholder_never_carries_input` | The result never contains input text |
+| 24 | `test_allow_list_entries_are_plain_lower_case_extensions` | Every list entry is a plain lower-case extension |
+| 25 | `test_addin_safe_ext_uses_the_same_allow_list` | `AttachmentExtractor.SafeExtensions` equals `SAFE_EXTENSIONS` and `SafeExt` uses it (static) |
 
 ---
 

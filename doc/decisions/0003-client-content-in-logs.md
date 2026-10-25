@@ -12,7 +12,7 @@ The owner also wants a way to see full details while developing.
 
 ## Decision
 
-Default logs never contain client content (subject, body, prompt, query, answer, file name, or exception text that can quote them). They carry ids (user, Outlook id, request id), counts, sizes, durations and sanitized extensions (`safe_ext` on the server, `SafeExt` in the add-in: the lower-cased suffix if it is 1 to 8 alphanumeric characters, otherwise `other`).
+Default logs never contain client content (subject, body, prompt, query, answer, file name, or exception text that can quote them). They carry ids (user, Outlook id, request id), counts, sizes, durations and sanitized extensions (`safe_ext` on the server, `SafeExt` in the add-in). The extension is an allow-list: the lower-cased suffix is logged only if it is a known format (`SAFE_EXTENSIONS` in `src/logger.py`, mirrored in `AttachmentExtractor.cs`: the formats the readers and the loopback processor handle plus common office, image and archive formats); anything else, including suffixes with trailing whitespace or line breaks, is logged as the fixed placeholder `other`.
 
 Client content may be logged only through `src.logger.content()` (server) or `PluginConfig.Content()` (add-in). They return it only when `LOG_CLIENT_CONTENT=true` together with `ARCUMAI_ENV=dev` (server; the server refuses to start with the switch on outside dev) or `LogClientContent=true` in the local add-in configuration. When on, the value is written on one line (newlines escaped). The switch is never pushed by the server. Startup logs a WARNING while it is on. Logs written while it is on must be purged after use.
 

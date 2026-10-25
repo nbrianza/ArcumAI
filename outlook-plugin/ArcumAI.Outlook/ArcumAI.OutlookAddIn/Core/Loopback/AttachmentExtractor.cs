@@ -177,8 +177,22 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
         }
 
         /// <summary>
-        /// Lower-cased extension of fileName if it is 1 to 8 alphanumeric characters after
-        /// the dot, otherwise "other" (an arbitrary suffix could itself carry client content).
+        /// Extensions that may appear in plugin.log by default. Keep in sync with
+        /// SAFE_EXTENSIONS in src/logger.py on the server (#39).
+        /// </summary>
+        private static readonly HashSet<string> SafeExtensions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".xlsm", ".ppt", ".pptx",
+            ".msg", ".eml", ".txt", ".md", ".csv", ".rtf",
+            ".odt", ".ods", ".odp",
+            ".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff",
+            ".zip", ".gz"
+        };
+
+        /// <summary>
+        /// Lower-cased extension of fileName if it is in SafeExtensions, otherwise "other".
+        /// Allow-list (owner decision on PR #67): an arbitrary suffix, including one with
+        /// trailing whitespace or a line break, could itself carry client content.
         /// Mirrors src.logger.safe_ext on the server (#39).
         /// </summary>
         private static string SafeExt(string fileName)
@@ -192,15 +206,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
             {
                 return "other";
             }
-            if (ext.Length < 2 || ext.Length > 9)
-                return "other";
-            for (int k = 1; k < ext.Length; k++)
-            {
-                char c = ext[k];
-                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')))
-                    return "other";
-            }
-            return ext;
+            return SafeExtensions.Contains(ext) ? ext : "other";
         }
 
         /// <summary>

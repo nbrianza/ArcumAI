@@ -2,7 +2,6 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 import logging
 import os
-import re
 import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -72,14 +71,24 @@ server_log = _create_custom_logger("ArcumServer", "server.log")
 # file name, or exception text that can quote them). Client values may reach a log
 # line only through content(), which returns them only when LOG_CLIENT_CONTENT is on.
 
-_SAFE_EXT_RE = re.compile(r"^\.[a-z0-9]{1,8}$")
+# Extensions that may appear in default logs: the formats the readers and the loopback
+# processor handle, plus common office, image and archive formats. Keep in sync with
+# SafeExtensions in the add-in (Core/Loopback/AttachmentExtractor.cs).
+SAFE_EXTENSIONS = frozenset({
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".xlsm", ".ppt", ".pptx",
+    ".msg", ".eml", ".txt", ".md", ".csv", ".rtf",
+    ".odt", ".ods", ".odp",
+    ".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff",
+    ".zip", ".gz",
+})
 
 
 def safe_ext(name) -> str:
-    """Lower-cased file extension of `name` if it is 1 to 8 alphanumeric characters,
-    otherwise "other" (an arbitrary suffix could itself carry client content)."""
+    """Lower-cased file extension of `name` if it is in SAFE_EXTENSIONS, otherwise
+    "other". Allow-list (owner decision on PR #67): an arbitrary suffix, including one
+    with trailing whitespace or a line break, could itself carry client content."""
     suffix = os.path.splitext(str(name or ""))[1].lower()
-    return suffix if _SAFE_EXT_RE.match(suffix) else "other"
+    return suffix if suffix in SAFE_EXTENSIONS else "other"
 
 
 def content(value, redacted: str | None = None) -> str:
