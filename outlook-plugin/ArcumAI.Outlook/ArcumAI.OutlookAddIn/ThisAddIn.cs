@@ -316,7 +316,7 @@ namespace ArcumAI.OutlookAddIn
             }
             catch (Exception ex)
             {
-                _logger.Log("ERROR", $"VirtualLoopback: ItemSend handler error: {ex}");
+                _logger.Log("ERROR", $"VirtualLoopback: ItemSend handler error: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
                 // Do NOT cancel on error: let the email send normally
                 Cancel = false;
             }
@@ -420,7 +420,7 @@ namespace ArcumAI.OutlookAddIn
                 }
                 catch (Exception ex)
                 {
-                    _logger.Log("ERROR", $"Request {id} ({method}) failed: {ex}");
+                    _logger.Log("ERROR", $"Request {id} ({method}) failed: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
                     response["error"] = new JObject { ["code"] = JsonRpcException.InternalError, ["message"] = $"Internal error: {ex.Message}" };
                 }
 
@@ -430,7 +430,7 @@ namespace ArcumAI.OutlookAddIn
             }
             catch (Exception ex)
             {
-                _logger.Log("ERROR", $"Error handling message: {ex}");
+                _logger.Log("ERROR", $"Error handling message: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
             }
         }
 

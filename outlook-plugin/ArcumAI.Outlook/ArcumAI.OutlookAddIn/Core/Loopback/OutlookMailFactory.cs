@@ -421,7 +421,7 @@ namespace ArcumAI.OutlookAddIn.Core.Loopback
             }
             catch (Exception ex)
             {
-                _logAction("ERROR", $"VirtualLoopback: Failed to create response email: {ex}");
+                _logAction("ERROR", $"VirtualLoopback: Failed to create response email: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
             }
             finally
             {

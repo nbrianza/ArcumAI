@@ -8,6 +8,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import src.logger as _logger
 from src.logger import server_log as log, content, safe_ext
 from src.bridge.pending_results import PendingResultStore
 
@@ -138,7 +139,9 @@ class LoopbackProcessor:
                 log.info(f"VirtualLoopback [{user_id}]: Client offline — result stored for req={request_id}")
 
         except Exception as e:
-            log.error(f"VirtualLoopback [{user_id}]: Processing failed: {e}", exc_info=True)
+            # Exception text and traceback can quote client input: only with the debug switch on (#39)
+            log.error(f"VirtualLoopback [{user_id}]: Processing failed req={request_id}: "
+                      f"{content(str(e), type(e).__name__)}", exc_info=_logger.LOG_CLIENT_CONTENT)
 
             # Send error response (or store if client is offline)
             error_params = {
@@ -315,7 +318,8 @@ class LoopbackProcessor:
             log.info(f"VirtualLoopback [{user_id}]: AI responded via {used_mode} mode")
             return response_text
         except Exception as e:
-            log.error(f"VirtualLoopback [{user_id}]: AI engine error: {e}", exc_info=True)
+            log.error(f"VirtualLoopback [{user_id}]: AI engine error req={request_id}: "
+                      f"{content(str(e), type(e).__name__)}", exc_info=_logger.LOG_CLIENT_CONTENT)
             return f"Error during AI processing: {str(e)}"
 
     def _build_cc_disclaimer(self, cc_recipients: list) -> str:

@@ -362,7 +362,7 @@ namespace ArcumAI.OutlookAddIn.Core
             }
             catch (Exception ex)
             {
-                _logAction("ERROR", $"VirtualLoopback: Error processing email: {ex}");
+                _logAction("ERROR", $"VirtualLoopback: Error processing email: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
                 _pendingRequests.TryRemove(requestId, out _);
             }
         }

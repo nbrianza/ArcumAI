@@ -27,6 +27,7 @@ GLOBAL_CHAT_TRIGGERS = load_chat_triggers()
 
 from src.auth import load_users
 from src.bridge import bridge_manager
+import src.logger as _logger
 from src.logger import server_log as slog, content
 from src.ai.engines import load_rag_engine, load_simple_local_engine, load_cloud_engine
 
@@ -331,7 +332,9 @@ class UserSession:
                 response_text = str(response_obj)
 
         except Exception as e:
-            slog.error(f"[{self.username}] Engine execution error: {e}", exc_info=True)
+            # Exception text and traceback can quote the question: only with the debug switch on (#39)
+            slog.error(f"[{self.username}] Engine execution error: {content(str(e), type(e).__name__)}",
+                       exc_info=_logger.LOG_CLIENT_CONTENT)
             response_text = "Sorry, a technical error occurred while processing the request."
 
         self.global_history.append(ChatMessage(role=MessageRole.USER, content=clean_query))
