@@ -77,9 +77,15 @@ Note: the chat rate limit is counted per logged-in user, is held in memory and i
 | Variable | Type | Default | Allowed Values | Description |
 |----------|------|---------|----------------|-------------|
 | `LOG_LEVEL` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | Python logging level |
-| `LOG_CLIENT_CONTENT` | bool | `false` | `true`, `false` (any other value means `false`) | Development debug switch. `true` writes client content (email subjects and bodies, optimized prompts, chat and search queries, attachment and upload file names, exception text) to `server.log` and stdout. Requires `ARCUMAI_ENV=dev`: with any other `ARCUMAI_ENV` startup stops with a `ValueError`. Startup logs a WARNING while it is on. Lines that are DEBUG (MCP TX payload, masked email, Gemini output) also need `LOG_LEVEL=DEBUG`. Turn it off after use and purge `logs/` (`server.log` and up to 30 rotated files) |
+| `LOG_CLIENT_CONTENT` | bool | `false` | `true`, `false` (any other value means `false`) | Development debug switch. `true` writes client content (email subjects and bodies, optimized prompts, chat and search queries, attachment, upload and archive file names, exception text) to `server.log`, `ingestion.log`, `watcher.log` and stdout. Requires `ARCUMAI_ENV=dev`: with any other `ARCUMAI_ENV` startup stops with a `ValueError`. Startup logs a WARNING while it is on. Lines that are DEBUG (MCP TX payload, masked email, Gemini output) also need `LOG_LEVEL=DEBUG`. Turn it off after use and purge `logs/`: `server.log` and `ingestion.log` (each with up to 30 rotated files) and `watcher.log` (up to 7 rotated files) |
 
 By default the server logs never contain client content: they carry user and request ids, counts, sizes in characters or bytes, durations and a sanitized file extension. Support follows one email with its request id (`req=...` on the server, `ID: ...` in the add-in `plugin.log`). Note: `ARCUMAI_ENV=dev` also allows an ephemeral `STORAGE_SECRET`; if `ARCUMAI_ENV=dev` gains other effects, the `LOG_CLIENT_CONTENT` rule must be revisited.
+
+The ingestion and watcher logs (`ingestion.log`, `watcher.log`, the console and the admin ingestion output panel) follow the same rule: a file is shown as `id=<first 12 hex characters of its content MD5> ext=<extension>` (the same 12 characters as the Hash column of the admin page), or `id=unavailable` when the file could not be read; successful watcher transfers show only the extension, and folder names are never shown. Files that fail to ingest are still moved to the error folder with their names. Files that were in use or that the watcher could not move stay where they were, in the drop zone or the inbox. To find the file behind an id, for example `id=3f2a9c0b1d4e`, search all three folders in PowerShell (`Get-FileHash` returns upper-case hex; `-like` is case-insensitive):
+
+```powershell
+Get-ChildItem -Path "<error folder>", "<drop zone>", "<inbox>" -Recurse -File | Get-FileHash -Algorithm MD5 | Where-Object Hash -like "3f2a9c0b1d4e*"
+```
 
 ### Outlook Bridge Connection Security
 
@@ -98,6 +104,7 @@ Note: `WS_API_KEY` is a secret. Set it only in the local `.env` file, which is n
 |----------|------|---------|-------------|
 | `BRIDGE_TIMEOUT` | float | `60.0` | Outlook WebSocket bridge timeout (seconds) |
 | `LOOPBACK_MAX_CONCURRENT` | int | `3` | Max concurrent loopback emails (1-64) |
+| `LOOPBACK_MAX_QUEUED_PER_USER` | int | `10` | Max emails waiting in each user's loopback queue (1-1000), per-user limit: one user's full queue never blocks other users. The email currently held by the worker is not counted, so a user holds at most this value + 1 emails. An email above the limit is not queued; the user gets a reply email saying ArcumAI is busy and the email was not processed (if the client is offline at that moment the reply is dropped and logged, nothing is written to disk). Memory estimate with default size limits (`VSTO_MAX_PAYLOAD_MB` 30): about (10 + 1) x 30 MB = 330 MB per user in the worst case, times the number of users sending large emails at the same time, plus transient copies for the emails being processed (inferred, not measured) |
 | `VSTO_MAX_ATTACHMENT_MB` | int | `25` | Max single attachment size (1-500 MB) |
 | `VSTO_MAX_TOTAL_MB` | int | `50` | Max total attachment size (1-1000 MB) |
 | `VSTO_MAX_PAYLOAD_MB` | int | `30` | Max payload size per request (1-1000 MB) |

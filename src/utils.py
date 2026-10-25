@@ -7,7 +7,8 @@ import hashlib
 import stat
 import errno
 from pathlib import Path
-from .logger import log, server_log as slog
+from . import logger as _logger
+from .logger import log, server_log as slog, content, safe_ext
 
 # LlamaIndex Schema
 from llama_index.core.schema import TextNode
@@ -24,6 +25,24 @@ def calcola_hash_file(file_path):
         return hasher.hexdigest()
     except Exception:
         return "hash_error"
+
+def file_ref(path, file_hash=None, shown=None) -> str:
+    """Reference to a client file for ingestion log lines (issue #52).
+
+    Returns "id=<first 12 hex of the content MD5> ext=<safe_ext>", or
+    "id=unavailable ext=..." when the hash cannot be computed. The file name never
+    appears in default logs: only when LOG_CLIENT_CONTENT is on is
+    " file=<repr(shown or path.name)>" appended. When file_hash is None the hash is
+    computed here (failure paths only, so successful runs read each file once).
+    """
+    path = Path(path)
+    if file_hash is None:
+        file_hash = calcola_hash_file(path)
+    file_id = "unavailable" if not file_hash or file_hash == "hash_error" else file_hash[:12]
+    ref = f"id={file_id} ext={safe_ext(path.name)}"
+    if _logger.LOG_CLIENT_CONTENT:
+        ref += f" file={content(shown if shown is not None else path.name)}"
+    return ref
 
 def sposta_file_con_struttura(file_path: Path, root_src: Path, root_dst: Path, max_retries=3):
     """
@@ -47,20 +66,25 @@ def sposta_file_con_struttura(file_path: Path, root_src: Path, root_dst: Path, m
 
     # 3. Move attempt with Retry
     last_error = None
+    ref = None  # file reference for log lines, computed on the first failure only
     for attempt in range(max_retries):
         try:
             shutil.move(str(file_path), str(target_path))
             return target_path # Success!
         except PermissionError as e:
             last_error = e
-            log.warning(f"   ⏳ File in use: {file_path.name} (Attempt {attempt+1}/{max_retries})...")
+            if ref is None:
+                ref = file_ref(file_path)
+            log.warning(f"   ⏳ File in use: {ref} (Attempt {attempt+1}/{max_retries})...")
             time.sleep(2)
         except Exception as e:
             # Other errors (e.g. full disk) no point retrying immediately
             raise e
 
     # If we're here, all attempts exhausted
-    log.error(f"   💀 Unable to move {file_path.name} after {max_retries} attempts.")
+    if ref is None:
+        ref = file_ref(file_path)
+    log.error(f"   💀 Unable to move {ref} after {max_retries} attempts.")
     raise last_error
 
 def handle_remove_readonly(func, path, exc):
@@ -99,7 +123,8 @@ def pulisci_cartelle_vuote(root_dir: Path):
                 shutil.rmtree(folder, ignore_errors=False, onerror=handle_remove_readonly)
                 removed_count += 1
         except Exception as e:
-            log.warning(f"Could not remove empty folder '{folder}': {e}")
+            log.warning(f"Could not remove empty folder {content(str(folder), '(name hidden)')}: "
+                        f"{content(str(e), type(e).__name__)}")
 
     if removed_count > 0:
         log.info(f"   🧹 Cleanup: Removed {removed_count} empty folders in {root_dir.name}.")
@@ -126,7 +151,7 @@ def get_all_nodes_from_chroma(chroma_collection):
             all_nodes.append(node)
         return all_nodes
     except Exception as e:
-        log.error(f"❌ Error retrieving nodes: {e}")
+        log.error(f"❌ Error retrieving nodes: {content(str(e), type(e).__name__)}")
         return []
 
     # --- ADDITIONS FOR ARCUM AI HYBRID UI ---
