@@ -398,3 +398,166 @@ def test_ws_evict_criterion6_endpoint_still_uses_throttle_functions():
     source = (PROJECT_ROOT / "main_nice.py").read_text(encoding="utf-8")
     assert "ws_auth_is_rate_limited(client_ip)" in source
     assert source.count("ws_auth_record_failure(client_ip)") == 2
+
+
+# =============================================================================
+# Issue #59: WebSocket throttle timing is independent of wall-clock changes
+# =============================================================================
+#
+# Approved design (D1, D2): ws_auth_is_rate_limited and ws_auth_record_failure
+# measure time with time.monotonic(). The wall clock (time.time) and the
+# monotonic clock (time.monotonic) are replaced by two SEPARATE fakes that start
+# far apart, so a call site that still reads time.time() (ws_auth_record_failure
+# is the easy one to miss) makes a test fail. IPs are synthetic (10.0.59.0/24
+# for named actors, 10.59.0.0/16 for traffic).
+
+class _SplitClock:
+    """Independent fakes for the wall clock and the monotonic clock."""
+
+    def __init__(self, wall_start: float = 1_900_000_000.0, mono_start: float = 5_000.0):
+        self.wall = wall_start
+        self.mono = mono_start
+
+    def time(self) -> float:
+        return self.wall
+
+    def monotonic(self) -> float:
+        return self.mono
+
+    def elapse(self, seconds: float) -> None:
+        """Real time passes: both clocks advance."""
+        self.wall += seconds
+        self.mono += seconds
+
+    def jump_wall(self, seconds: float) -> None:
+        """The wall clock is set forwards (positive) or backwards (negative)."""
+        self.wall += seconds
+
+
+@pytest.fixture
+def split_clock(monkeypatch):
+    fake = _SplitClock()
+    monkeypatch.setattr(auth_module.time, "time", fake.time)
+    monkeypatch.setattr(auth_module.time, "monotonic", fake.monotonic)
+    return fake
+
+
+def _ip59(n: int) -> str:
+    return f"10.0.59.{n}"
+
+
+def _traffic_ip59(k: int) -> str:
+    return f"10.59.{k // 256}.{k % 256}"
+
+
+def _jump_seconds(jump) -> float:
+    if jump == "-10w":
+        return -10 * _window()
+    if jump == "10w":
+        return 10 * _window()
+    return float(jump)
+
+
+_ALL_JUMPS = [
+    pytest.param(-1, id="back_1s"),
+    pytest.param("-10w", id="back_10_windows"),
+    pytest.param(1, id="fwd_1s"),
+    pytest.param("10w", id="fwd_10_windows"),
+]
+
+
+def _block_ws_ip(ip: str) -> None:
+    for _ in range(_max_attempts()):
+        _failed_connection(ip)
+    assert _connect(ip) is True, "precondition: IP blocked"
+
+
+@pytest.mark.parametrize("jump", _ALL_JUMPS)
+def test_ws_monotonic_block_not_lifted_early_by_wall_jump(split_clock, jump):
+    # Criteria 3 and 5 applied to the WebSocket throttle (design D2).
+    ip = _ip59(1)
+    _block_ws_ip(ip)
+    split_clock.jump_wall(_jump_seconds(jump))
+
+    assert _connect(ip) is True, "block lifted right after the clock change"
+    split_clock.elapse(_window() - 1)
+    assert _connect(_ip59(2)) is False
+    assert _connect(ip) is True, "block lifted before WS_AUTH_WINDOW of elapsed time"
+
+
+@pytest.mark.parametrize("jump", _ALL_JUMPS)
+def test_ws_monotonic_block_ends_one_window_after_last_failure_despite_wall_jump(split_clock, jump):
+    # Criteria 2 and 5 applied to the WebSocket throttle (design D2).
+    ip = _ip59(3)
+    _block_ws_ip(ip)
+    split_clock.jump_wall(_jump_seconds(jump))
+
+    split_clock.elapse(_window() + 1)
+    assert _connect(ip) is False, "block must end WS_AUTH_WINDOW of elapsed time after the last failure"
+
+
+def test_ws_monotonic_records_evicted_after_backward_wall_jump(split_clock):
+    # Criterion 1 applied to the WebSocket throttle: failure at wall T + 10 x
+    # WS_AUTH_WINDOW, wall set back to T, connections from other IPs once per
+    # elapsed second for 2 x WS_AUTH_WINDOW + 2 seconds.
+    w = _window()
+    first_ip = _ip59(10)
+    t = split_clock.wall
+    split_clock.jump_wall(10 * w)
+    _failed_connection(first_ip)
+    assert first_ip in _store(), "precondition: failure recorded"
+
+    split_clock.wall = t
+    for k in range(2 * w + 2):
+        split_clock.elapse(1)
+        _failed_connection(_traffic_ip59(k))
+
+    assert first_ip not in _store(), "record stamped before the backward clock change is still stored"
+
+
+def test_ws_monotonic_guard_wall_clock_alone_never_changes_blocking(split_clock):
+    # Only the wall clock moves, between every failure and every check; the
+    # monotonic clock stays still. Fails if either ws_auth_is_rate_limited or
+    # ws_auth_record_failure still reads time.time().
+    n = _max_attempts()
+    w = _window()
+    ip = _ip59(20)
+    for i in range(n):
+        split_clock.jump_wall(10 * w if i % 2 == 0 else -25 * w)
+        _failed_connection(ip)
+    for jump in (100 * w, -300 * w, 1, -1):
+        split_clock.jump_wall(jump)
+        assert _connect(ip) is True, f"block changed by a wall clock jump of {jump}s"
+
+    split_clock.mono += w - 1
+    split_clock.jump_wall(-50 * w)
+    assert _connect(ip) is True
+    split_clock.mono += 2
+    split_clock.jump_wall(70 * w)
+    assert _connect(ip) is False, "block must end after WS_AUTH_WINDOW of monotonic time"
+
+
+def test_ws_monotonic_guard_retention_bound_holds_when_only_monotonic_time_passes(split_clock):
+    old_ip = _ip59(30)
+    _failed_connection(old_ip)
+    split_clock.mono += _retention_bound() + 1
+    split_clock.jump_wall(-1)
+    assert _connect(_ip59(31)) is False
+
+    assert old_ip not in _store(), "stale record not evicted on the monotonic clock"
+
+
+def test_ws_monotonic_clock_change_logs_no_ip(split_clock, log_records):
+    # Criterion 7 applied to the WebSocket throttle.
+    old_ip = _ip59(40)
+    split_clock.jump_wall(10 * _window())
+    _failed_connection(old_ip)
+    before = len(log_records)
+
+    split_clock.jump_wall(-10 * _window())
+    split_clock.elapse(_retention_bound() + 1)
+    assert _connect(_ip59(41)) is False
+
+    for rec in log_records[before:]:
+        text = f"{rec.getMessage()} {rec.msg!r} {rec.args!r}"
+        assert old_ip not in text, "eviction must not log IPs"

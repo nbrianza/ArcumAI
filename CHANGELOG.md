@@ -49,6 +49,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
 - Plugin: a `wss://` ServerUrl (any letter case) is accepted as secure even when `UseSecureConnection` is false; the `ws://`/`wss://` prefix check is case-insensitive (#48)
 - Outlook bridge authentication throttle no longer keeps an entry for every connecting IP; a failure record is gone by the first bridge connection at or after 2 x `WS_AUTH_WINDOW` (#51)
+- Web login and Outlook bridge authentication throttles measure time with a monotonic clock, so setting the system clock backwards or forwards neither extends nor shortens a block and no longer keeps failure records longer than 2 x the window (#59)
 
 ---
 

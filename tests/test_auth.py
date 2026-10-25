@@ -83,6 +83,6 @@ def test_ws_auth_resets_after_window_expires():
     import src.auth as auth_module
     from src.config import WS_AUTH_MAX_ATTEMPTS, WS_AUTH_WINDOW
     ip = "10.0.255.2"
-    # Plant stale timestamps outside the window
-    auth_module._ws_auth_failures[ip] = [time.time() - WS_AUTH_WINDOW - 10] * WS_AUTH_MAX_ATTEMPTS
+    # Plant stale timestamps outside the window (throttle time is monotonic, #59 D4)
+    auth_module._ws_auth_failures[ip] = [time.monotonic() - WS_AUTH_WINDOW - 10] * WS_AUTH_MAX_ATTEMPTS
     assert auth_module.ws_auth_is_rate_limited(ip) is False
