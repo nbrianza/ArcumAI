@@ -17,7 +17,6 @@ from src.bridge.loopback_queue import _EmailTask, _UserQueue
 from src.bridge.loopback_processor import LoopbackProcessor
 
 BRIDGE_TIMEOUT = float(os.getenv("BRIDGE_TIMEOUT", "60.0"))
-LOOPBACK_TIMEOUT = float(os.getenv("LOOPBACK_TIMEOUT", "3600.0"))
 
 _CONTROL_CHARS = str.maketrans({c: f"\\x{c:02x}" for c in range(0x20) if c not in (0x09,)})
 _CONTROL_CHARS.update({ord('\n'): '\\n', ord('\r'): '\\r', ord('\x1b'): '\\x1b'})

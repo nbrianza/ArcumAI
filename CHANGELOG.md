@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin persists server-pushed config in `%APPDATA%\ArcumAI\Outlook\server-config.json` (#25)
 - Plugin MAPI property URIs moved to `Core/MapiProperties.cs` (#31); `OutlookDataProvider` created per call (#30)
 
+### Removed
+
+- `LOOPBACK_TIMEOUT` env var: it was documented but never applied; removed. Use `VSTO_LOOPBACK_TIMEOUT_MS` for the loopback email timeout (#53)
+
 ### Security
 
 - `/documents` (archive downloads and chat Sources links) now requires login and enforces ownership: ADMIN reads every document, other users only documents under `data_archivio/<username>/` (case-insensitive); files at the archive root or under an unknown folder are ADMIN-only. Denials are logged with reason and IP only. Non-admin users lose access to documents outside their own folder (#36)
@@ -43,6 +47,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
 - Plugin: a `wss://` ServerUrl (any letter case) is accepted as secure even when `UseSecureConnection` is false; the `ws://`/`wss://` prefix check is case-insensitive (#48)
+- Outlook bridge authentication throttle no longer keeps an entry for every connecting IP; a failure record is gone by the first bridge connection at or after 2 x `WS_AUTH_WINDOW` (#51)
 
 ---
 
