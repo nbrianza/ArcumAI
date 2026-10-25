@@ -172,6 +172,13 @@ def _run_ingestion(target_path: str | None = None) -> str:
             return (f"Ingestion stopped: exceeded the {INGEST_TIMEOUT_SEC}s timeout "
                     f"(INGEST_TIMEOUT_SEC). Files not yet processed remain in data_nuovi/.\n\n"
                     f"{partial}").strip()
+        except Exception as e:
+            # Report instead of raising, so the re-ingest summary still settles every
+            # staged file (#46). Only the exception type is logged: its text can
+            # contain paths.
+            slog.error(f"Admin ingestion failed to run: {type(e).__name__}")
+            return (f"Ingestion could not be started or failed unexpectedly ({type(e).__name__}). "
+                    f"Files not yet processed remain in data_nuovi/.")
         return (result.stdout + "\n" + result.stderr).strip()
     finally:
         _ingestion_lock.release()
@@ -334,9 +341,9 @@ def create_admin_page():
                                         slog.error(f"[{username}] Re-ingest rollback failed: a staged "
                                                    f"file could not be moved back to the archive")
                                         ui.notify(f'{name}: the index could not be updated and the file '
-                                                  f'could not be moved back. It is still in data_nuovi/; '
-                                                  f'move it back to its archive folder before the next '
-                                                  f'ingestion run, or it will end up in data_duplicati/.',
+                                                  f'could not be moved back. It may still be in data_nuovi/ '
+                                                  f'or already in data_duplicati/; move it back to its '
+                                                  f'archive folder manually.',
                                                   type='negative', timeout=0, close_button=True)
                                     continue
                             staged.append((name, rel))
@@ -348,7 +355,14 @@ def create_admin_page():
                             return
 
                         ui.notify('Running ingestion...', type='info')
-                        output = await run.io_bound(_run_ingestion)
+                        try:
+                            output = await run.io_bound(_run_ingestion)
+                        except Exception as e:
+                            # Files are staged and their chunks deleted: still settle
+                            # and report each one below.
+                            slog.error(f"[{username}] Re-ingest run failed: {type(e).__name__}")
+                            output = (f"Ingestion failed unexpectedly ({type(e).__name__}). "
+                                      f"Files not yet processed remain in data_nuovi/.")
                         log_output.value = output
                         log_output.classes(remove='hidden')
 
