@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Plugin persists server-pushed config in `%APPDATA%\ArcumAI\Outlook\server-config.json` (#25)
 - Plugin MAPI property URIs moved to `Core/MapiProperties.cs` (#31); `OutlookDataProvider` created per call (#30)
 
+### Removed
+
+- `LOOPBACK_TIMEOUT` env var: it was documented but never applied; removed. Use `VSTO_LOOPBACK_TIMEOUT_MS` for the loopback email timeout (#53)
+
 ### Security
 
 - Server and add-in logs no longer contain client content: email subjects and bodies, optimized prompts, chat and Outlook search queries, attachment and upload file names, and exception text that can quote them are replaced by request ids, sizes, counts and a sanitized file extension. Support correlates one email across `server.log` (`req=...`) and `plugin.log` (`ID: ...`) by its request id. The web chat log line no longer shows the start of the question, and the fallback ReAct agent no longer prints tool arguments to the console. A development-only switch (`LOG_CLIENT_CONTENT=true` together with `ARCUMAI_ENV=dev` on the server, `LogClientContent=true` in the local add-in configuration) logs the details again, with a startup WARNING. Log files written before this change (`logs/`, `plugin.log`, `plugin.log.old`) may still contain client data and should be purged by the operator (#39)
@@ -42,6 +46,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
 - Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
+- Outlook bridge authentication throttle no longer keeps an entry for every connecting IP; a failure record is gone by the first bridge connection at or after 2 x `WS_AUTH_WINDOW` (#51)
 
 ---
 

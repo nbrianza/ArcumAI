@@ -97,14 +97,13 @@ Note: `WS_API_KEY` is a secret. Set it only in the local `.env` file, which is n
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `BRIDGE_TIMEOUT` | float | `60.0` | Outlook WebSocket bridge timeout (seconds) |
-| `LOOPBACK_TIMEOUT` | float | `3600.0` | Loopback email processing timeout (seconds) |
 | `LOOPBACK_MAX_CONCURRENT` | int | `3` | Max concurrent loopback emails (1-64) |
 | `VSTO_MAX_ATTACHMENT_MB` | int | `25` | Max single attachment size (1-500 MB) |
 | `VSTO_MAX_TOTAL_MB` | int | `50` | Max total attachment size (1-1000 MB) |
 | `VSTO_MAX_PAYLOAD_MB` | int | `30` | Max payload size per request (1-1000 MB) |
 | `VSTO_ARCUMAI_EMAIL` | string | `assistant@arcumai.ch` | Email address for loopback replies |
 | `VSTO_ARCUMAI_DISPLAY_NAME` | string | `ArcumAI Assistant` | Display name for loopback sender |
-| `VSTO_LOOPBACK_TIMEOUT_MS` | int | `3600000` | Loopback timeout in milliseconds |
+| `VSTO_LOOPBACK_TIMEOUT_MS` | int | `3600000` | Timeout applied to one loopback email: how long the Outlook add-in waits for the answer before it puts a timeout reply in the inbox (10000-86400000 ms, 1 hour by default). Pushed to the add-in at `client/identify`. The server keeps processing the email after it expires. |
 | `VSTO_ENABLE_VIRTUAL_LOOPBACK` | string | `true` | Enable virtual loopback (`true`/`false`) |
 | `VSTO_SHOW_NOTIFICATION` | string | `true` | Show processing notification (`true`/`false`) |
 
