@@ -296,6 +296,7 @@ namespace ArcumAI.OutlookAddIn
         private void Application_ItemSend(object Item, ref bool Cancel)
         {
             Outlook.MailItem mail = null;
+            bool arcumAddressPending = false;   // #68: true from "addressed to ArcumAI" until the address is confirmed removed
             try
             {
                 mail = Item as Outlook.MailItem;
@@ -326,6 +327,7 @@ namespace ArcumAI.OutlookAddIn
 
                 if (_loopbackHandler.ShouldIntercept(mail))
                 {
+                    arcumAddressPending = true;   // first statement: before the subject is read
                     // ArcumAI is the ONLY recipient: full intercept
                     _logger.Log("INFO", $"VirtualLoopback: Intercepting email to ArcumAI (subject {PluginConfig.Content(mail.Subject, (mail.Subject?.Length ?? 0) + " chars")})");
                     Cancel = true;
@@ -333,20 +335,44 @@ namespace ArcumAI.OutlookAddIn
                 }
                 else if (_loopbackHandler.ShouldProcessInParallel(mail))
                 {
+                    arcumAddressPending = true;   // first statement: before the subject is read
                     // ArcumAI + real recipients: send normally but also process via AI
                     _logger.Log("INFO", $"VirtualLoopback: Parallel processing (CC to ArcumAI) (subject {PluginConfig.Content(mail.Subject, (mail.Subject?.Length ?? 0) + " chars")})");
                     _loopbackHandler.RemoveArcumRecipient(mail);
+                    // Returned normally: no ArcumAI recipient is left, so a later error may fail open
+                    arcumAddressPending = false;
                     _ = _loopbackHandler.ProcessInterceptedEmail(mail);
                     // Cancel stays false: email is sent to real recipients
                 }
             }
             catch (Exception ex)
             {
-                _logger.Log("ERROR", $"VirtualLoopback: ItemSend handler error: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
-                // Do NOT cancel on error: let the email send normally
-                Cancel = false;
+                if (arcumAddressPending)
+                {
+                    // #68: the ArcumAI address may still be on the mail: hold it (fail closed)
+                    Cancel = true;                // set first: nothing below may undo it
+                    ReportSendHeldOnError(ex);    // one ERROR line + notice, swallows its own errors
+                }
+                else
+                {
+                    _logger.Log("ERROR", $"VirtualLoopback: ItemSend handler error: {PluginConfig.Content(ex.ToString(), ex.GetType().Name + " 0x" + ex.HResult.ToString("X8"))}");
+                    // Do NOT cancel on error: let the email send normally
+                    Cancel = false;
+                }
             }
             // NOTE: Do NOT release the mail COM object here - Outlook owns it
+        }
+
+        // #68: called only after Cancel = true. Fixed text: no subject, body, address, sender or file name.
+        // The exception message is not logged because an Outlook COM message can quote a recipient.
+        private void ReportSendHeldOnError(Exception ex)
+        {
+            try
+            {
+                _logger.Log("ERROR", $"VirtualLoopback: Email to ArcumAI not sent: error in the send handler ({ex.GetType().Name}, HResult 0x{ex.HResult:X8}); send cancelled, email kept in Outlook");
+                _loopbackHandler?.NotifyHeldOnError();
+            }
+            catch { /* the hold must stand even if logging or the notice fails */ }
         }
 
         private void Application_Quit()
