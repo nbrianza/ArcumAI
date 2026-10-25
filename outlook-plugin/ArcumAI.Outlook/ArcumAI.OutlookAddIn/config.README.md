@@ -247,6 +247,18 @@ If the log shows `[ERROR] Connection refused: ... the connection would not be en
 3. Increase `ReconnectDelayMs` (e.g., 10000)
 4. Check network stability
 
+### Sending to ArcumAI while the add-in is disconnected
+
+When virtual loopback is enabled and the add-in is not connected to the ArcumAI server (server stopped, reconnect in progress, or connection refused because it would not be encrypted), a mail with the ArcumAI address among its recipients is not sent through the mail server:
+
+- The whole send is cancelled, also when the ArcumAI address is in CC or BCC next to real recipients. Remove the ArcumAI address yourself if the mail must reach the other recipients now.
+- The compose window stays open with the mail unchanged. If you close it, Outlook offers to save it in Drafts.
+- A notice (tray balloon) says that ArcumAI is not connected and the mail was not sent. It contains no subject, recipient or attachment name. Windows Focus Assist or turned-off notifications can hide it.
+- Send the mail again once the add-in has reconnected (`Connected successfully` in the log); it is then processed as usual.
+- One `WARNING` line is written to `plugin.log` per held send, without subject, body, addresses or file names. It is not written when `EnableLogging` is `false` or `LogLevel` is `ERROR`.
+
+Mails without the ArcumAI address are sent normally. As an additional measure, administrators can add a mail-server rule that blocks the ArcumAI address, for clients that do not run the add-in.
+
 ### Slow Performance
 
 1. Reduce `MaxEmailResults` (e.g., 5)
