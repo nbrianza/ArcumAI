@@ -21,7 +21,7 @@ from src.config import (
     COLLECTION_NAME, DB_PATH, INGEST_TIMEOUT_SEC,
 )
 from src.documents import resolve_archive_path
-from src.logger import server_log as slog
+from src.logger import server_log as slog, content, safe_ext
 
 _ingestion_lock = threading.Lock()
 
@@ -287,7 +287,9 @@ def create_admin_page():
                             if chunk_ids:
                                 n = await run.io_bound(_delete_document_chunks, chunk_ids)
                                 total += n
-                                slog.info(f"[{username}] Deleted {n} chunks for {row['filename']}")
+                                doc_ext = safe_ext(row['filename'])
+                                slog.info(f"[{username}] Deleted {n} chunks for 1 document "
+                                          f"({content(row['filename'], f'ext={doc_ext}')})")
                         ui.notify(f'Deleted {total} chunks from {len(selected)} document(s).', type='positive')
                         table.selected.clear()
                         await refresh_table()
@@ -347,7 +349,8 @@ def create_admin_page():
                                                   type='negative', timeout=0, close_button=True)
                                     continue
                             staged.append((name, rel))
-                            slog.info(f"[{username}] Queued re-ingest: {rel.name}")
+                            slog.info(f"[{username}] Queued re-ingest: 1 file "
+                                      f"({content(rel.name, f'ext={safe_ext(rel.name)}')})")
 
                         if not staged:
                             table.selected.clear()

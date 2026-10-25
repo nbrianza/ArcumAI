@@ -29,7 +29,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- Server and add-in logs no longer contain client content: email subjects and bodies, optimized prompts, chat and Outlook search queries, attachment and upload file names, and exception text that can quote them are replaced by request ids, sizes, counts and a sanitized file extension. Support correlates one email across `server.log` (`req=...`) and `plugin.log` (`ID: ...`) by its request id. The web chat log line no longer shows the start of the question, and the fallback ReAct agent no longer prints tool arguments to the console. A development-only switch (`LOG_CLIENT_CONTENT=true` together with `ARCUMAI_ENV=dev` on the server, `LogClientContent=true` in the local add-in configuration) logs the details again, with a startup WARNING. Log files written before this change (`logs/`, `plugin.log`, `plugin.log.old`) may still contain client data and should be purged by the operator (#39)
 - `/documents` (archive downloads and chat Sources links) now requires login and enforces ownership: ADMIN reads every document, other users only documents under `data_archivio/<username>/` (case-insensitive); files at the archive root or under an unknown folder are ADMIN-only. Denials are logged with reason and IP only. Non-admin users lose access to documents outside their own folder (#36)
+- Plugin: refuses to connect in cleartext to a non-loopback server (one `[ERROR] Connection refused` log line, no retry); set `UseSecureConnection` to true or use a `wss://` address in `config.json` and restart Outlook. Installations that used `ws://` to a remote server stop connecting until TLS is configured (#47)
 
 ### Fixed
 
@@ -45,6 +47,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Web login throttle evicts failure records older than `LOGIN_WINDOW`; a stale record is gone by the first login attempt at or after 2 x `LOGIN_WINDOW` (#44)
 - Login page: fields stay dark and readable when Chrome or Edge autofills saved credentials (#43)
 - Plugin: localhost detection no longer accepts host names that merely contain `localhost` or `127.0.0.1`; `[::1]` is now recognised (#38)
+- Plugin: a `wss://` ServerUrl (any letter case) is accepted as secure even when `UseSecureConnection` is false; the `ws://`/`wss://` prefix check is case-insensitive (#48)
 - Outlook bridge authentication throttle no longer keeps an entry for every connecting IP; a failure record is gone by the first bridge connection at or after 2 x `WS_AUTH_WINDOW` (#51)
 - Admin page re-ingestion keeps the document in its original archive folder (owner Sources links keep working) and no longer creates `_<timestamp>` copies; the document list shows one row per path, failed re-ingestions are put back in their folder and reported, and unsafe paths are rejected (#46)
 
