@@ -17,7 +17,8 @@ from tqdm import tqdm  # Progress bar
 
 # Internal Modules
 from src.readers import SmartPDFReader, MyOutlookReader, MyEmlReader
-from src.logger import log
+import src.logger as _logger
+from src.logger import log, content
 from src.config import (
     INBOX_DIR, ARCHIVE_DIR, ERROR_DIR,
     DUPLICATES_DIR, DB_PATH, COLLECTION_NAME, BM25_PATH,
@@ -26,6 +27,7 @@ from src.config import (
 )
 from src.utils import (
     calcola_hash_file,
+    file_ref,
     sposta_file_con_struttura,
     pulisci_cartelle_vuote,
     get_all_nodes_from_chroma
@@ -62,7 +64,10 @@ def read_and_chunk_file(file_path):
     """
     Reads the file, creates nodes and logs the result.
     """
+    current_hash = None
     try:
+        # Hash first: it identifies the file in every log line (issue #52)
+        current_hash = calcola_hash_file(file_path)
         docs = []
         ext = file_path.suffix.lower()
 
@@ -80,7 +85,7 @@ def read_and_chunk_file(file_path):
         else: return None, "SKIP_EXT"
 
         if not docs:
-            log.warning(f"   ⚠️ No content extracted from: {file_path.name} (ext: {ext})")
+            log.warning(f"   ⚠️ No content extracted from: {file_ref(file_path, current_hash)}")
             return None, "EMPTY"
 
         # DETAILED READ LOG
@@ -89,9 +94,8 @@ def read_and_chunk_file(file_path):
         except ValueError:
             rel_path = file_path.name
 
-        log.info(f"   📖 READ: {rel_path} | Extension: {ext} | Elements: {len(docs)}")
+        log.info(f"   📖 READ: {file_ref(file_path, current_hash, shown=str(rel_path))} | Elements: {len(docs)}")
 
-        current_hash = calcola_hash_file(file_path)
         unique_id = str(rel_path).replace(os.sep, "_").replace(" ", "_")
 
         for doc in docs:
@@ -107,7 +111,7 @@ def read_and_chunk_file(file_path):
         return nodes, current_hash
 
     except Exception as e:
-        log.error(f"❌ Error reading {file_path.name}: {e}")
+        log.error(f"❌ Error reading {file_ref(file_path, current_hash)}: {content(str(e), type(e).__name__)}")
         return None, "ERROR"
 
 def main():
@@ -145,7 +149,7 @@ def main():
             current_hash = calcola_hash_file(file_path)
             existing = collection.get(where={"file_hash": current_hash}, limit=1)
             if existing and existing["ids"]:
-                log.info(f"♻️ Duplicate skipped: {file_path.name}")
+                log.info(f"♻️ Duplicate skipped: {file_ref(file_path, current_hash)}")
                 sposta_file_con_struttura(file_path, INBOX_DIR, DUPLICATES_DIR)
                 continue
 
@@ -153,7 +157,7 @@ def main():
             nodes, status = read_and_chunk_file(file_path)
 
             if status == "ERROR" or status == "EMPTY":
-                failed_files.append((file_path.name, status))
+                failed_files.append((file_ref(file_path, current_hash), status))
                 sposta_file_con_struttura(file_path, INBOX_DIR, ERROR_DIR)
                 continue
             elif status == "SKIP_EXT":
@@ -179,7 +183,7 @@ def main():
                     files_to_move_ok = []
                     gc.collect()
                 except Exception as e:
-                    log.error(f"🔥 Error writing Batch to DB: {e}")
+                    log.error(f"🔥 Error writing Batch to DB: {content(str(e), type(e).__name__)}")
                     for f in files_to_move_ok:
                         sposta_file_con_struttura(f, INBOX_DIR, ERROR_DIR)
                     accumulated_nodes = []
@@ -198,7 +202,7 @@ def main():
                 log.info(f"   ✅ Final batch completed.")
 
             except Exception as e:
-                log.error(f"🔥 Error writing Final Batch to DB: {e}")
+                log.error(f"🔥 Error writing Final Batch to DB: {content(str(e), type(e).__name__)}")
                 for f in files_to_move_ok:
                     sposta_file_con_struttura(f, INBOX_DIR, ERROR_DIR)
 
@@ -213,19 +217,20 @@ def main():
                         language="italian"
                     )
                     bm25.persist(str(BM25_PATH))
-            except Exception as e: log.error(f"❌ BM25 Error: {e}")
+            except Exception as e: log.error(f"❌ BM25 Error: {content(str(e), type(e).__name__)}")
 
         pulisci_cartelle_vuote(INBOX_DIR)
         log.info(f"🏁 Completed: {processed_count}/{len(files)} files archived.")
 
         if failed_files:
             log.warning(f"⚠️ {len(failed_files)} files failed:")
-            for fname, reason in failed_files:
-                log.warning(f"   - {fname} ({reason})")
+            for ref, reason in failed_files:
+                log.warning(f"   - {ref} ({reason})")
             log.warning(f"   Failed files have been moved to: {ERROR_DIR}")
 
     except Exception as e:
-        log.critical(f"🔥 CRASH MAIN: {e}", exc_info=True)
+        log.critical(f"🔥 CRASH MAIN: {content(str(e), type(e).__name__)}",
+                     exc_info=_logger.LOG_CLIENT_CONTENT)
     finally:
         release_lock()
 
