@@ -15,7 +15,8 @@ Features:
 import os
 import uuid
 from typing import Dict, List, Tuple, Optional
-from src.logger import server_log as log
+import src.logger as _logger
+from src.logger import server_log as log, content
 
 # Lazy imports for optional Presidio dependency
 _analyzer = None
@@ -232,7 +233,10 @@ def mask_pii(text: str, language: str = "it", score_threshold: float = 0.35) -> 
         }
 
     except Exception as e:
-        log.error(f"NER: Masking failed: {e}", exc_info=True)
+        # Exception text and traceback can quote the text being masked:
+        # only with the debug switch on (#39). Logging change only.
+        log.error(f"NER: Masking failed: {content(str(e), type(e).__name__)}",
+                  exc_info=_logger.LOG_CLIENT_CONTENT)
         return text, {}
 
 
@@ -277,7 +281,7 @@ def unmask_pii(masked_text: str, anonymization_metadata: Dict) -> str:
         return result
 
     except Exception as e:
-        log.warning(f"NER: De-anonymization failed ({e}), returning masked text")
+        log.warning(f"NER: De-anonymization failed ({content(str(e), type(e).__name__)}), returning masked text")
         return masked_text
 
 
