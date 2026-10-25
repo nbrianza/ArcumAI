@@ -99,8 +99,10 @@ def update_password(username, new_password):
 
 # --- WebSocket Auth Rate Limiting (per-IP) ---
 _ws_auth_failures: dict[str, list[float]] = {}
-# Time of the last full sweep of _ws_auth_failures. No lock: the only callers
-# run on the event loop, with no await between check and record.
+# Time of the last full sweep of _ws_auth_failures, on the time.monotonic()
+# clock like the failure records, so wall-clock changes cannot move them.
+# No lock: the only callers run on the event loop, with no await between
+# check and record.
 _ws_auth_last_sweep: float = 0.0
 
 
@@ -128,10 +130,11 @@ def _ws_sweep_stale(now: float) -> None:
 
 def ws_auth_is_rate_limited(ip: str) -> bool:
     """Returns True if this IP has exceeded WS_AUTH_MAX_ATTEMPTS in the last WS_AUTH_WINDOW seconds."""
-    now = time.time()
+    now = time.monotonic()
     # Periodic sweep, at most once per WS_AUTH_WINDOW, so a failure record is
-    # gone by the first connection at or after 2 x WS_AUTH_WINDOW. Also sweeps
-    # when the clock moved backwards, so eviction does not stall.
+    # gone by the first connection at or after 2 x WS_AUTH_WINDOW. The
+    # now < _ws_auth_last_sweep check is defensive: the monotonic clock does
+    # not go backwards, but if it ever did, eviction would not stall.
     if now - _ws_auth_last_sweep >= WS_AUTH_WINDOW or now < _ws_auth_last_sweep:
         _ws_sweep_stale(now)
     return len(_ws_recent(ip, now)) >= WS_AUTH_MAX_ATTEMPTS
@@ -139,7 +142,7 @@ def ws_auth_is_rate_limited(ip: str) -> bool:
 
 def ws_auth_record_failure(ip: str) -> None:
     """Record a failed WebSocket auth attempt for this IP."""
-    _ws_auth_failures.setdefault(ip, []).append(time.time())
+    _ws_auth_failures.setdefault(ip, []).append(time.monotonic())
 
 
 # --- Web Login Rate Limiting (per IP and per username) ---
@@ -148,7 +151,9 @@ def ws_auth_record_failure(ip: str) -> None:
 _login_failures_ip: dict[str, list[float]] = {}
 _login_failures_user: dict[str, list[float]] = {}
 _login_lock = threading.Lock()
-# Time of the last full sweep of both stores (protected by _login_lock).
+# Time of the last full sweep of both stores (protected by _login_lock), on
+# the time.monotonic() clock like the failure records, so wall-clock changes
+# cannot move them.
 _login_last_sweep: float = 0.0
 
 
@@ -185,10 +190,11 @@ def check_login(users_db: dict, username: str, password: str, client_ip: str) ->
     known = username in users_db
     user_label = f"'{username}'" if known else "<unknown>"
     with _login_lock:
-        now = time.time()
+        now = time.monotonic()
         # Periodic sweep, at most once per LOGIN_WINDOW, so a failure record is
-        # gone by the first attempt at or after 2 x LOGIN_WINDOW. Also sweeps
-        # immediately if the clock went backwards.
+        # gone by the first attempt at or after 2 x LOGIN_WINDOW. The
+        # now < _login_last_sweep check is defensive: the monotonic clock does
+        # not go backwards, but if it ever did, eviction would not stall.
         if now - _login_last_sweep >= LOGIN_WINDOW or now < _login_last_sweep:
             _sweep_stale(now)
         if (len(_recent(_login_failures_ip, client_ip, now)) >= LOGIN_MAX_ATTEMPTS
@@ -202,7 +208,7 @@ def check_login(users_db: dict, username: str, password: str, client_ip: str) ->
         return "ok"
 
     with _login_lock:
-        now = time.time()
+        now = time.monotonic()
         _login_failures_ip.setdefault(client_ip, []).append(now)
         _login_failures_user.setdefault(username, []).append(now)
     slog.warning(f"Web login failed (IP: {client_ip}, user: {user_label})")
