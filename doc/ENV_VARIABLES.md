@@ -77,6 +77,9 @@ Note: the chat rate limit is counted per logged-in user, is held in memory and i
 | Variable | Type | Default | Allowed Values | Description |
 |----------|------|---------|----------------|-------------|
 | `LOG_LEVEL` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | Python logging level |
+| `LOG_CLIENT_CONTENT` | bool | `false` | `true`, `false` (any other value means `false`) | Development debug switch. `true` writes client content (email subjects and bodies, optimized prompts, chat and search queries, attachment and upload file names, exception text) to `server.log` and stdout. Requires `ARCUMAI_ENV=dev`: with any other `ARCUMAI_ENV` startup stops with a `ValueError`. Startup logs a WARNING while it is on. Lines that are DEBUG (MCP TX payload, masked email, Gemini output) also need `LOG_LEVEL=DEBUG`. Turn it off after use and purge `logs/` (`server.log` and up to 30 rotated files) |
+
+By default the server logs never contain client content: they carry user and request ids, counts, sizes in characters or bytes, durations and a sanitized file extension. Support follows one email with its request id (`req=...` on the server, `ID: ...` in the add-in `plugin.log`). Note: `ARCUMAI_ENV=dev` also allows an ephemeral `STORAGE_SECRET`; if `ARCUMAI_ENV=dev` gains other effects, the `LOG_CLIENT_CONTENT` rule must be revisited.
 
 ### Outlook Bridge Connection Security
 
@@ -170,6 +173,7 @@ The C# plugin does **not** read `.env` files. Configuration is loaded from (in p
 | `EnableLogging` | bool | `true` | — | Enable file logging |
 | `LogLevel` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` | Minimum log level |
 | `LogFilePath` | string | `%APPDATA%\ArcumAI\Outlook\logs\plugin.log` | Valid path or empty | Log file location |
+| `LogClientContent` | bool | `false` | — | Development debug switch, local only (`App.config` or `config.json`, never pushed by the server). `true` writes email subjects, attachment file names and search queries to `plugin.log`; startup logs a WARNING while it is on. Turn it off after use and delete `plugin.log` and `plugin.log.old` |
 
 ### Virtual Loopback
 

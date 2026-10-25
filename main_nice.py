@@ -36,7 +36,7 @@ app.add_middleware(
 from src.config import (
     ARCHIVE_DIR, init_settings, PROFILE, LLM_MODEL_NAME, EMBED_MODEL_NAME,
     CONTEXT_WINDOW, CHUNK_SIZE, CHUNK_OVERLAP,
-    PROMPT_OPTIMIZATION, ENABLE_NER_MASKING,
+    PROMPT_OPTIMIZATION, ENABLE_NER_MASKING, LOG_CLIENT_CONTENT,
     WS_RECEIVE_TIMEOUT,
     WS_API_KEY,
     SSL_CERTFILE, SSL_KEYFILE, TLS_TERMINATED_UPSTREAM,
@@ -44,7 +44,7 @@ from src.config import (
 from src.tls import build_ssl_kwargs, warn_if_unencrypted
 from src.auth import load_users, verify_password, check_login, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
-from src.logger import server_log as slog
+from src.logger import server_log as slog, warn_if_content_logging
 from src.conversations import ConversationStore
 from src.documents import router as documents_router
 
@@ -319,7 +319,11 @@ if __name__ in {"__main__", "__mp_main__"}:
     slog.info("Starting Arcum AI")
     slog.info(f"  Profile: {PROFILE} | LLM: {LLM_MODEL_NAME} | Embed: {EMBED_MODEL_NAME}")
     slog.info(f"  Context: {CONTEXT_WINDOW} | Chunk: {CHUNK_SIZE}/{CHUNK_OVERLAP}")
-    slog.info(f"  Prompt Optimization: {PROMPT_OPTIMIZATION} | NER Masking: {ENABLE_NER_MASKING}")
+    slog.info(
+        f"  Prompt Optimization: {PROMPT_OPTIMIZATION} | NER Masking: {ENABLE_NER_MASKING}"
+        f" | Content logging: {'ON' if LOG_CLIENT_CONTENT else 'OFF'}"
+    )
+    warn_if_content_logging(slog)
     slog.info(f"  Host: {host}:{port}")
     if ssl_kwargs:
         slog.info("  Transport: https/wss")
