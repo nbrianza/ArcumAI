@@ -30,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - `/documents` (archive downloads and chat Sources links) now requires login and enforces ownership: ADMIN reads every document, other users only documents under `data_archivio/<username>/` (case-insensitive); files at the archive root or under an unknown folder are ADMIN-only. Denials are logged with reason and IP only. Non-admin users lose access to documents outside their own folder (#36)
+- Plugin: refuses to connect in cleartext to a non-loopback server (one `[ERROR] Connection refused` log line, no retry); set `UseSecureConnection` to true or use a `wss://` address in `config.json` and restart Outlook. Installations that used `ws://` to a remote server stop connecting until TLS is configured (#47)
 
 ### Fixed
 

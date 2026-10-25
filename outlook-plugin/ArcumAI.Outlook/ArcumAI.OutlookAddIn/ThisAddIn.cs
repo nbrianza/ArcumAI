@@ -86,6 +86,15 @@ namespace ArcumAI.OutlookAddIn
         {
             if (_isShuttingDown) return;
 
+            // #47: never send the API key or email content in cleartext to a remote host.
+            // Every connection attempt (startup and reconnects) passes here.
+            if (_config.IsCleartextRemoteConnection())
+            {
+                _logger.Log("ERROR", $"Connection refused: {_config.ServerUrl} is a remote server and the connection would not be encrypted. " +
+                    "Set UseSecureConnection to true or use a wss:// ServerUrl in config.json, then restart Outlook.");
+                return; // no ScheduleReconnect: the configuration cannot change until Outlook restarts
+            }
+
             try
             {
                 _logger.Log("INFO", $"Connecting to {_config.GetWebSocketUrl()} (attempt {_reconnectAttempt + 1})...");
