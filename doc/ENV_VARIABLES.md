@@ -77,9 +77,15 @@ Note: the chat rate limit is counted per logged-in user, is held in memory and i
 | Variable | Type | Default | Allowed Values | Description |
 |----------|------|---------|----------------|-------------|
 | `LOG_LEVEL` | string | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | Python logging level |
-| `LOG_CLIENT_CONTENT` | bool | `false` | `true`, `false` (any other value means `false`) | Development debug switch. `true` writes client content (email subjects and bodies, optimized prompts, chat and search queries, attachment and upload file names, exception text) to `server.log` and stdout. Requires `ARCUMAI_ENV=dev`: with any other `ARCUMAI_ENV` startup stops with a `ValueError`. Startup logs a WARNING while it is on. Lines that are DEBUG (MCP TX payload, masked email, Gemini output) also need `LOG_LEVEL=DEBUG`. Turn it off after use and purge `logs/` (`server.log` and up to 30 rotated files) |
+| `LOG_CLIENT_CONTENT` | bool | `false` | `true`, `false` (any other value means `false`) | Development debug switch. `true` writes client content (email subjects and bodies, optimized prompts, chat and search queries, attachment, upload and archive file names, exception text) to `server.log`, `ingestion.log`, `watcher.log` and stdout. Requires `ARCUMAI_ENV=dev`: with any other `ARCUMAI_ENV` startup stops with a `ValueError`. Startup logs a WARNING while it is on. Lines that are DEBUG (MCP TX payload, masked email, Gemini output) also need `LOG_LEVEL=DEBUG`. Turn it off after use and purge `logs/` (`server.log` and up to 30 rotated files) |
 
 By default the server logs never contain client content: they carry user and request ids, counts, sizes in characters or bytes, durations and a sanitized file extension. Support follows one email with its request id (`req=...` on the server, `ID: ...` in the add-in `plugin.log`). Note: `ARCUMAI_ENV=dev` also allows an ephemeral `STORAGE_SECRET`; if `ARCUMAI_ENV=dev` gains other effects, the `LOG_CLIENT_CONTENT` rule must be revisited.
+
+The ingestion and watcher logs (`ingestion.log`, `watcher.log`, the console and the admin ingestion output panel) follow the same rule: a file is shown as `id=<first 12 hex characters of its content MD5> ext=<extension>` (the same 12 characters as the Hash column of the admin page), or `id=unavailable` when the file could not be read; successful watcher transfers show only the extension, and folder names are never shown. Failed files are still moved to the error folder with their names. To find the file behind an id, for example `id=3f2a9c0b1d4e`, run in PowerShell (`Get-FileHash` returns upper-case hex; `-like` is case-insensitive):
+
+```powershell
+Get-ChildItem -Path "<error folder>" -Recurse -File | Get-FileHash -Algorithm MD5 | Where-Object Hash -like "3f2a9c0b1d4e*"
+```
 
 ### Outlook Bridge Connection Security
 
