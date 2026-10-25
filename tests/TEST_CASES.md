@@ -222,6 +222,34 @@ the fixed placeholder `other`.
 
 ---
 
+### `test_ingestion_log_privacy.py`: No archive file or folder names in ingestion and watcher logs, issue #52 (30 tests)
+
+The `ArcumIngestion` handlers (file, console and the `watcher.log` handler) are swapped
+for an in-memory handler at DEBUG; `watcher.py` is imported with its file handler class
+replaced by a null handler, so `logs/` is never opened or read. Every synthetic file and
+subfolder name carries `ZZ-SYNTHETIC-MARKER-123`; fake errors quote the full path, as
+operating system errors do. A file is expected as `id=<first 12 hex of content MD5> ext=<safe_ext>`.
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_criterion1_ingest_main_default_logs_and_stdout_have_no_file_or_folder_names` | `ingest.main()` on a readable, a duplicate, an empty and an unreadable file: no marker in records, stdout or stderr |
+| 2 | `test_criterion5_ingest_main_lines_state_action_id_and_extension` | READ, Duplicate skipped, No content, Error reading (with exception type) and the failed list carry `id=... ext=...` |
+| 3 | `test_criterion5_ingest_main_summary_totals_unchanged` | `Completed: 1/4 files archived`, `2 files failed`, error folder root still logged |
+| 4 | `test_criterion6_switch_on_ingest_main_logs_names_with_ids` | With `LOG_CLIENT_CONTENT` on, the four file lines show the name together with the id |
+| 5 | `test_criterion7_failed_files_still_moved_to_error_folder_with_names` | Failed files land in the error folder with name and subfolder; duplicate and archived file as today |
+| 6-8 | `test_criterion1_batch_db_error_*`, `test_criterion1_bm25_error_*`, `test_criterion1_crash_main_*` | DB batch, BM25 and CRASH MAIN lines log the exception type, not its text or traceback |
+| 9 | `test_criterion2_watcher_move_default_logs_and_stdout_have_no_file_or_folder_names` | `process_drop_zone()` with one move and one locked file: no marker anywhere |
+| 10 | `test_criterion5_watcher_lines_state_action_extension_and_failure_id` | Transferred with `ext=`, File in use and Failed to move with id and type, cleanup count |
+| 11 | `test_criterion2_watcher_detected_print_has_extension_not_name` | The `Detected` console print shows the extension, not the name |
+| 12 | `test_criterion2_watcher_scan_error_logs_exception_type_not_text` | Drop zone scan error logs the exception type only |
+| 13-15 | `test_criterion3_pdf/msg/eml_reader_error_*` | Reader errors log id, extension and exception type; no name, no exception text, no traceback |
+| 16-18 | `test_criterion4_file_in_use_*`, `test_criterion5_file_in_use_*` | Move helper: no name; one id line per attempt and the final line; `id=unavailable` when the hash fails |
+| 19-21 | `test_criterion4_empty_folder_cleanup_*`, `test_criterion4_folder_removal_error_*`, `test_criterion4_chroma_node_retrieval_error_*` | Cleanup count only; folder removal and node retrieval errors log the type only |
+| 22-26 | `test_file_ref_*` | `file_ref`: id12 plus safe extension, given hash used, `hash_error` or unreadable file gives `id=unavailable`, unknown extension gives `other`, switch on appends `file=` (name or `shown`) |
+| 27-30 | `test_static_guard_no_file_name_or_exception_text_in_ingestion_log_calls[file]` | No `log` call (or `print` in `watcher.py`) in `ingest.py`, `watcher.py`, `src/readers.py`, `src/utils.py` interpolates a name, path or exception outside `content()`/`file_ref()`/`safe_ext()`, and no `exc_info=True` |
+
+---
+
 ### `test_ws_auth_throttle.py`: Outlook bridge auth throttle eviction, issue #51 (20 tests)
 
 Covers `ws_auth_is_rate_limited` and `ws_auth_record_failure` in `src/auth.py`. A bridge
