@@ -11,7 +11,9 @@ from email.parser import BytesParser
 
 # Import config for paths
 from src.config import TESSERACT_CMD, POPPLER_PATH, OCR_ENABLED
-from src.logger import log
+import src.logger as _logger
+from src.logger import log, content
+from src.utils import file_ref
 
 # Configure Tesseract only if paths are valid
 if OCR_ENABLED:
@@ -133,7 +135,8 @@ class SmartPDFReader:
             return documents
 
         except Exception as e:
-            log.error(f"❌ SmartPDFReader error on {file_path.name}: {e}", exc_info=True)
+            log.error(f"❌ SmartPDFReader error on {file_ref(file_path)}: {content(str(e), type(e).__name__)}",
+                      exc_info=_logger.LOG_CLIENT_CONTENT)
             return []
 
 # --- Other classes (Outlook/EML) remain the same below ---
@@ -155,7 +158,7 @@ class MyOutlookReader:
                        f"{msg.body}"
             return [Document(text=msg_text, metadata=metadata)]
         except Exception as e:
-            log.warning(f"⚠️ MSG Error {file.name}: {e}")
+            log.warning(f"⚠️ MSG Error {file_ref(file)}: {content(str(e), type(e).__name__)}")
             return []
         finally:
             if msg: msg.close()
@@ -188,5 +191,5 @@ class MyEmlReader:
                         f"{body_text}"
             return [Document(text=full_text, metadata=metadata)]
         except Exception as e:
-            log.warning(f"⚠️ EML Error {file.name}: {e}")
+            log.warning(f"⚠️ EML Error {file_ref(file)}: {content(str(e), type(e).__name__)}")
             return []

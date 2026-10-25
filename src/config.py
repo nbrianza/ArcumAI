@@ -174,6 +174,8 @@ TLS_TERMINATED_UPSTREAM = os.getenv("TLS_TERMINATED_UPSTREAM", "false").lower() 
 
 # --- 10b. LOOPBACK QUEUE & RESILIENCE ---
 LOOPBACK_MAX_CONCURRENT  = _env_int("LOOPBACK_MAX_CONCURRENT", "3", 1, 64)
+# Per-user cap on emails WAITING in the loopback queue (the one held by the worker is not counted)
+LOOPBACK_MAX_QUEUED_PER_USER = _env_int("LOOPBACK_MAX_QUEUED_PER_USER", "10", 1, 1_000)
 PENDING_RESULT_TTL_HOURS = _env_int("PENDING_RESULT_TTL_HOURS", "48", 1, 8_760)
 PENDING_RESULTS_DIR      = os.getenv("PENDING_RESULTS_DIR", "temp/pending_results")
 

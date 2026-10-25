@@ -585,3 +585,206 @@ def test_evict_cleanup_logs_nothing_about_evicted_records(clock, log_records):
     for rec in new:
         text = _all_text(rec)
         assert old_user not in text and old_ip not in text, "eviction must not log usernames or IPs"
+
+
+# =============================================================================
+# Issue #59: throttle timing is independent of wall-clock changes
+# =============================================================================
+#
+# Approved design (D1): check_login measures throttle time with time.monotonic()
+# instead of time.time(). The tests below replace the wall clock (time.time) and
+# the monotonic clock (time.monotonic) with two SEPARATE fakes: the wall clock
+# jumps backwards or forwards, the monotonic clock only moves forward with
+# elapsed time. The two fakes start far apart (wall in 2030, monotonic at a few
+# thousand seconds, like system uptime), so a call site that still reads
+# time.time() mixes time sources and either never expires a block or loses it,
+# which fails these tests. All usernames and IPs are synthetic (10.0.59.0/24,
+# 10.59.0.0/16).
+
+class _SplitClock:
+    """Independent fakes for the wall clock and the monotonic clock."""
+
+    def __init__(self, wall_start: float = 1_900_000_000.0, mono_start: float = 5_000.0):
+        self.wall = wall_start
+        self.mono = mono_start
+
+    def time(self) -> float:
+        return self.wall
+
+    def monotonic(self) -> float:
+        return self.mono
+
+    def elapse(self, seconds: float) -> None:
+        """Real time passes: both clocks advance."""
+        self.wall += seconds
+        self.mono += seconds
+
+    def jump_wall(self, seconds: float) -> None:
+        """The wall clock is set forwards (positive) or backwards (negative)."""
+        self.wall += seconds
+
+
+@pytest.fixture
+def split_clock(monkeypatch):
+    fake = _SplitClock()
+    monkeypatch.setattr(auth_module.time, "time", fake.time)
+    monkeypatch.setattr(auth_module.time, "monotonic", fake.monotonic)
+    return fake
+
+
+def _ip59(n: int) -> str:
+    return f"10.0.59.{n}"
+
+
+def _traffic_ip59(k: int) -> str:
+    """Distinct synthetic IP for background traffic, never blocked by itself."""
+    return f"10.59.{k // 250}.{k % 250 + 1}"
+
+
+def _block(kind: str) -> tuple[str, str]:
+    """Blocks a synthetic IP (kind "ip") or the username ALICE (kind "user").
+
+    Returns ``(username, ip)`` for a later correct login that the block must
+    refuse: for "ip" ALICE from the blocked IP, for "user" ALICE from a fresh IP.
+    """
+    n = _max_attempts()
+    if kind == "ip":
+        ip = _ip59(1)
+        _fail_from_ip_with_distinct_unknown_users(ip, n, prefix="synthetic-ghost-")
+        return ALICE, ip
+    for i in range(n):
+        assert _check(ALICE, WRONG_PASSWORD, _ip59(10 + i)) == "failed"
+    return ALICE, _ip59(10 + n)
+
+
+_BACKWARD_JUMPS = [pytest.param(-1, id="back_1s"), pytest.param("-10w", id="back_10_windows")]
+_FORWARD_JUMPS = [pytest.param(1, id="fwd_1s"), pytest.param("10w", id="fwd_10_windows")]
+
+
+def _jump_seconds(jump) -> float:
+    if jump == "-10w":
+        return -10 * _window()
+    if jump == "10w":
+        return 10 * _window()
+    return float(jump)
+
+
+# --- Criterion 1: records stamped before a backward jump are still evicted ---
+
+def test_monotonic_criterion1_records_evicted_after_backward_wall_jump(split_clock):
+    first_user, first_ip = "synthetic-ahead", _ip59(99)
+    w = _window()
+    t = split_clock.wall
+    split_clock.jump_wall(10 * w)                      # wall at T + 10 x LOGIN_WINDOW
+    assert _check(first_user, WRONG_PASSWORD, first_ip) == "failed"
+    assert first_user in _user_store() and first_ip in _ip_store(), "precondition: failure recorded"
+
+    split_clock.wall = t                               # wall set back to T
+    for k in range(2 * w + 2):                         # one attempt per elapsed second
+        split_clock.elapse(1)
+        assert _check(f"synthetic-other-{k}", WRONG_PASSWORD, _traffic_ip59(k)) == "failed"
+
+    leftovers = [k for store in (_ip_store(), _user_store()) for k in store if k in (first_user, first_ip)]
+    assert leftovers == [], f"records stamped before the backward clock change are still stored: {leftovers}"
+
+
+# --- Criteria 2 and 3: backward jump neither extends nor shortens a block ----
+
+@pytest.mark.parametrize("kind", ["ip", "user"])
+@pytest.mark.parametrize("jump", _BACKWARD_JUMPS)
+def test_monotonic_criterion2_block_ends_one_window_after_last_failure_despite_backward_jump(
+    split_clock, kind, jump
+):
+    user, ip = _block(kind)
+    split_clock.jump_wall(_jump_seconds(jump))
+
+    split_clock.elapse(_window() + 1)
+    assert _check(user, ALICE_PASSWORD, ip) == "ok", (
+        "block must end LOGIN_WINDOW of elapsed time after the last failure, whatever the wall clock says"
+    )
+
+
+@pytest.mark.parametrize("kind", ["ip", "user"])
+@pytest.mark.parametrize("jump", _BACKWARD_JUMPS)
+def test_monotonic_criterion3_block_not_lifted_early_by_backward_jump(split_clock, kind, jump):
+    user, ip = _block(kind)
+    split_clock.jump_wall(_jump_seconds(jump))
+
+    assert _check(user, ALICE_PASSWORD, ip) == "blocked", "block lifted right after the clock change"
+    split_clock.elapse(_window() - 1)
+    assert _check(user, ALICE_PASSWORD, ip) == "blocked", "block lifted before LOGIN_WINDOW of elapsed time"
+
+
+# --- Criterion 5: forward jump neither extends nor shortens a block ----------
+
+@pytest.mark.parametrize("kind", ["ip", "user"])
+@pytest.mark.parametrize("jump", _FORWARD_JUMPS)
+def test_monotonic_criterion5_forward_jump_block_holds_for_window_then_ends(split_clock, kind, jump):
+    user, ip = _block(kind)
+    split_clock.jump_wall(_jump_seconds(jump))
+
+    assert _check(user, ALICE_PASSWORD, ip) == "blocked", "block lifted right after the clock change"
+    split_clock.elapse(_window() - 1)
+    assert _check(user, ALICE_PASSWORD, ip) == "blocked", "block lifted before LOGIN_WINDOW of elapsed time"
+    split_clock.elapse(2)
+    assert _check(user, ALICE_PASSWORD, ip) == "ok", "block lasted longer than LOGIN_WINDOW of elapsed time"
+
+
+# --- Design guard: every call site in check_login uses the monotonic clock ---
+
+def test_monotonic_guard_wall_clock_alone_never_changes_blocking(split_clock):
+    # Only the wall clock moves, by large amounts in both directions, between
+    # every failure and every check; the monotonic clock stays still. Blocking
+    # must be exactly as if the wall clock had never moved, and the block must
+    # end only once LOGIN_WINDOW of monotonic time has elapsed.
+    n = _max_attempts()
+    w = _window()
+    ip = _ip59(120)
+    for i in range(n):
+        split_clock.jump_wall(10 * w if i % 2 == 0 else -25 * w)
+        assert _check(f"synthetic-guard-{i}", WRONG_PASSWORD, ip) == "failed", f"failure {i + 1}"
+    for jump in (100 * w, -300 * w, 1, -1):
+        split_clock.jump_wall(jump)
+        assert _check(BOB, BOB_PASSWORD, ip) == "blocked", f"block changed by a wall clock jump of {jump}s"
+
+    split_clock.mono += w - 1
+    split_clock.jump_wall(-50 * w)
+    assert _check(BOB, BOB_PASSWORD, ip) == "blocked"
+    split_clock.mono += 2
+    split_clock.jump_wall(70 * w)
+    assert _check(BOB, BOB_PASSWORD, ip) == "ok", "block must end after LOGIN_WINDOW of monotonic time"
+
+
+def test_monotonic_guard_retention_bound_holds_when_only_monotonic_time_passes(split_clock):
+    # The wall clock is frozen (or set back) while elapsed time passes: records
+    # must still be evicted within 2 x LOGIN_WINDOW of elapsed time.
+    old_user, old_ip = "synthetic-frozen", _ip59(130)
+    assert _check(old_user, WRONG_PASSWORD, old_ip) == "failed"
+    split_clock.mono += _retention_bound() + 1
+    split_clock.jump_wall(-1)
+    assert _check("synthetic-later", WRONG_PASSWORD, _ip59(131)) == "failed"
+
+    leftovers = [k for store in (_ip_store(), _user_store()) for k in store if k in (old_user, old_ip)]
+    assert leftovers == [], f"stale records not evicted on the monotonic clock: {leftovers}"
+
+
+# --- Criterion 7: nothing from the throttle records is logged ----------------
+
+def test_monotonic_criterion7_clock_change_logs_no_username_ip_or_password(split_clock, log_records):
+    old_user, old_ip = "synthetic-ahead-log", _ip59(140)
+    split_clock.jump_wall(10 * _window())
+    assert _check(old_user, WRONG_PASSWORD, old_ip) == "failed"
+    before = len(log_records)
+
+    split_clock.jump_wall(-10 * _window())
+    split_clock.elapse(_retention_bound() + 1)
+    assert _check("synthetic-later-log", WRONG_PASSWORD, _ip59(141)) == "failed"
+
+    new = log_records[before:]
+    assert len(_warnings(new)) == 1, "only the WARNING for the new failed attempt"
+    for rec in new:
+        text = _all_text(rec)
+        assert old_user not in text and old_ip not in text, "eviction must not log usernames or IPs"
+    for rec in log_records:
+        text = _all_text(rec)
+        assert WRONG_PASSWORD not in text and ALICE_PASSWORD not in text, "password leaked in log"

@@ -303,7 +303,24 @@ namespace ArcumAI.OutlookAddIn
 
                 if (!_transport.IsConnected)
                 {
-                    // Not connected to server: let the email send normally
+                    // Not connected: a mail to ArcumAI must never go out through the mail
+                    // server (#60). Mails without ArcumAI are sent normally.
+                    if (_loopbackHandler.ShouldIntercept(mail) || _loopbackHandler.ShouldProcessInParallel(mail))
+                    {
+                        Cancel = true;   // set first: nothing below may undo it
+                        // Separate try blocks: a log failure must not skip the notice, and
+                        // no exception may reach the outer catch, which resets Cancel.
+                        try
+                        {
+                            _logger.Log("WARNING", "VirtualLoopback: Email to ArcumAI held: add-in is not connected to the server (send cancelled, email kept open in Outlook)");
+                        }
+                        catch { /* the hold stands even if logging fails */ }
+                        try
+                        {
+                            _loopbackHandler.NotifyHeldWhileDisconnected();
+                        }
+                        catch { /* the hold stands even if the notice fails */ }
+                    }
                     return;
                 }
 

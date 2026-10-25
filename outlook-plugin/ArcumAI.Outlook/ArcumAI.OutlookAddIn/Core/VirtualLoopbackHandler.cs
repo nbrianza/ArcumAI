@@ -473,5 +473,16 @@ namespace ArcumAI.OutlookAddIn.Core
                 "Results will be delivered when the connection is restored.");
         }
 
+        /// <summary>
+        /// Shown when a send to ArcumAI is cancelled because the add-in is not connected (#60).
+        /// Fixed text: contains no mail data. Shown always, independent of ShowProcessingNotification.
+        /// </summary>
+        public void NotifyHeldWhileDisconnected()
+        {
+            _mailFactory.ShowToastNotification("ArcumAI",
+                "ArcumAI is not connected. Your email was not sent and is still open.\n" +
+                "Send it again when ArcumAI is connected.");
+        }
+
     }
 }

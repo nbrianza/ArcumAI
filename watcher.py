@@ -14,7 +14,7 @@ from watchdog.events import FileSystemEventHandler
 _INGEST_SCRIPT = Path(__file__).parent / "ingest.py"
 
 # --- PROJECT MODULE IMPORTS ---
-from src.logger import log
+from src.logger import log, content, safe_ext
 from src.config import (
     DROP_DIR,
     INBOX_DIR,
@@ -23,7 +23,7 @@ from src.config import (
     WATCHER_LOG_FILE
 )
 # Using the enhanced function directly from utils
-from src.utils import sposta_file_con_struttura, pulisci_cartelle_vuote
+from src.utils import sposta_file_con_struttura, pulisci_cartelle_vuote, file_ref
 
 # --- WATCHER LOGGER CONFIGURATION (TIME BASED) ---
 # Rotates every midnight, keeps 7 days of history for the watcher
@@ -56,7 +56,7 @@ class StagingHandler(FileSystemEventHandler):
             if filename.startswith("~$") or filename.startswith("."): return
             if Path(event.src_path).suffix not in WATCH_EXTENSIONS: return
 
-            print(f"👀 Detected: {filename}   ", end="\r")
+            print(f"👀 Detected change (ext={safe_ext(filename)})   ", end="\r")
             self.last_event_time = time.time()
             self.needs_processing = True
         except Exception:
@@ -111,17 +111,17 @@ def process_drop_zone():
             try:
                 # This single line handles retry and structure preservation
                 sposta_file_con_struttura(file_path, DROP_DIR, INBOX_DIR)
-                log.info(f"   -> Transferred: {file_path.name}")
+                log.info(f"   -> Transferred: ext={safe_ext(file_path.name)}")
                 files_moved_count += 1
             except Exception as e:
                 # If it fails after internal retries in utils, log it here
-                log.error(f"   ❌ Failed to move {file_path.name}: {e}")
+                log.error(f"   ❌ Failed to move {file_ref(file_path)}: {content(str(e), type(e).__name__)}")
 
         if files_moved_count > 0:
             pulisci_cartelle_vuote(DROP_DIR)
 
     except Exception as e:
-        log.error(f"❌ Error scanning Drop Zone: {e}")
+        log.error(f"❌ Error scanning Drop Zone: {content(str(e), type(e).__name__)}")
 
     return files_moved_count
 

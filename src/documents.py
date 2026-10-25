@@ -14,7 +14,7 @@ Rule (owner decision on issue #36):
 Denied requests log one WARNING with the reason and the client IP only, never
 the requested name or path (archive file names often contain client names).
 """
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
@@ -62,6 +62,29 @@ def document_owner(resolved: Path, root: Path) -> str | None:
     except ValueError:
         return None
     if len(parts) < 2:
+        return None
+    return parts[0]
+
+
+def indexed_path_owner(file_path: str | None) -> str | None:
+    """Returns the owner of an indexed chunk from its file_path metadata (#45).
+
+    file_path is the path relative to the inbox recorded by ingest.py, kept
+    under the archive by sposta_file_con_struttura, so its first folder is the
+    owner under the same rule as document_owner. Accepts both '\\' and '/'.
+    None (ADMIN-only) when the value is missing, unsafe in the sense of
+    resolve_archive_path (NUL, colon, absolute), contains '..', or names a file
+    at the root. The access decision itself stays in can_read.
+    """
+    if not isinstance(file_path, str) or not file_path:
+        return None
+    if "\x00" in file_path or ":" in file_path:
+        return None
+    path = PureWindowsPath(file_path)
+    if path.drive or path.root:
+        return None
+    parts = path.parts
+    if len(parts) < 2 or any(p in (".", "..") for p in parts):
         return None
     return parts[0]
 

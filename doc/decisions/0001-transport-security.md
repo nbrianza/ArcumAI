@@ -12,6 +12,7 @@ ArcumAI is often deployed on an office LAN. Plain HTTP and WebSocket expose logi
 - Without TLS on a non-loopback bind the server starts and logs one WARNING; it does not refuse to start (owner decision, #38).
 - A half-configured TLS setup (only one file set, or a path that does not exist) stops the server at startup with a message naming the variable (D1).
 - The Outlook add-in validates that a non-loopback server uses a secure connection, with a parsed-host check (`localhost`, `127.x.x.x`, `[::1]`), and relies on the Windows certificate store. Certificate validation is never bypassed. The add-in refuses to connect when the connection would be cleartext to a non-loopback host, that is when the `ServerUrl` does not start with `wss://`, `UseSecureConnection` is false, and the host is not `localhost`, `127.x.x.x` or `[::1]` (#47, #48). It logs one ERROR naming the setting to change and does not retry until Outlook restarts. Other configuration check failures still only log a WARNING.
+- Data locality on the send path: while the Outlook add-in is not connected to the server, a mail with the ArcumAI address among its recipients is never sent through the mail server. The add-in cancels the whole send, also when real recipients are present, keeps the mail open and shows a notice without mail data (#60). Mails without the ArcumAI address are not affected.
 
 ## Consequences
 
@@ -20,3 +21,4 @@ ArcumAI is often deployed on an office LAN. Plain HTTP and WebSocket expose logi
 - `TLS_TERMINATED_UPSTREAM` is a declaration, not a check.
 - When TLS is on (direct or declared upstream) the session cookie is marked Secure (#50); with `TLS_TERMINATED_UPSTREAM=true` a client that bypasses the proxy over plain HTTP cannot keep a login session.
 - Installations that used `ws://` to a remote server stop connecting until TLS is configured (#47).
+- Users cannot send a mail that includes the ArcumAI address while the add-in is disconnected; they send it again after reconnect or remove the ArcumAI address (#60).

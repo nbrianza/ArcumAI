@@ -142,3 +142,48 @@ def test_ac4_ocr_path_default_matches_config(var):
     assert default_cell == default, (
         f"{var}: documented default {default_cell!r} differs from src/config.py {default!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #54, criteria 3 and 7: LOOPBACK_MAX_QUEUED_PER_USER is documented with
+# its default, range, per-user scope and a memory estimate; changelog entry.
+# Whether the estimate is correct is checked by review, not here.
+# ---------------------------------------------------------------------------
+
+QUEUE_VAR = "LOOPBACK_MAX_QUEUED_PER_USER"
+
+
+def test_issue54_ac7_queue_limit_row_states_default_and_range_matching_config():
+    calls = _config_calls()
+    assert QUEUE_VAR in calls, f"{QUEUE_VAR} is not read in src/config.py"
+    default, lo, hi = calls[QUEUE_VAR][:3]
+    assert (int(default), lo, hi) == (10, 1, 1000), "approved design: default 10, range 1-1000"
+    header, row = _find_row(QUEUE_VAR)
+    assert row is not None, f"{QUEUE_VAR} has no table row in the Python section"
+    lowered = [h.lower() for h in header]
+    assert "default" in lowered, f"Table holding {QUEUE_VAR} has no 'Default' column"
+    assert 10 in _ints(row[lowered.index("default")])
+    row_ints = _ints(" | ".join(row[1:]))
+    assert 1 in row_ints and 1000 in row_ints, f"{QUEUE_VAR}: range 1-1000 not stated in its row"
+
+
+def test_issue54_ac7_queue_limit_row_gives_memory_estimate():
+    header, row = _find_row(QUEUE_VAR)
+    assert row is not None, f"{QUEUE_VAR} has no table row in the Python section"
+    text = " ".join(row)
+    assert re.search(r"\d+\s*MB", text), f"{QUEUE_VAR}: no memory estimate in MB in its row: {text!r}"
+
+
+def test_issue54_ac3_queue_limit_row_states_per_user_scope():
+    header, row = _find_row(QUEUE_VAR)
+    assert row is not None, f"{QUEUE_VAR} has no table row in the Python section"
+    text = " ".join(row).lower()
+    assert re.search(r"per[ -]user", text), f"{QUEUE_VAR}: per-user scope not stated: {text!r}"
+
+
+def test_issue54_ac7_changelog_unreleased_mentions_queue_limit():
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    match = re.search(r"^## \[Unreleased\]\s*$(.*?)(?=^## \[|\Z)", changelog, re.M | re.S)
+    assert match, "No [Unreleased] section in CHANGELOG.md"
+    assert QUEUE_VAR in match.group(1) or "#54" in match.group(1), (
+        "No line under [Unreleased] for issue #54")
