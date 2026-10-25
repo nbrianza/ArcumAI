@@ -98,6 +98,27 @@ def _stage_for_reingest(file_path: str) -> Path:
     return rel
 
 
+def _unstage_after_failed_delete(rel: Path) -> bool:
+    """Move a staged file from INBOX_DIR back to its archive folder.
+
+    Used when deleting the chunks failed after staging: left in the inbox, the
+    file would be found still indexed and sent to data_duplicati. Returns True
+    when the file is back in the archive, False when it could not be moved
+    (source gone, target occupied, or an OS error such as a file lock).
+    Never overwrites an archived file.
+    """
+    staged = INBOX_DIR / rel
+    archived = ARCHIVE_DIR / rel
+    if not staged.is_file() or archived.exists():
+        return False
+    try:
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staged), str(archived))
+    except OSError:
+        return False
+    return True
+
+
 def _settle_after_reingest(rel: Path) -> str:
     """Report where a staged document ended up after the ingestion run.
 
@@ -304,13 +325,19 @@ def create_admin_page():
                                 except Exception:
                                     # Put the file back, otherwise ingestion would find its
                                     # hash still indexed and send it to data_duplicati.
-                                    try:
-                                        await run.io_bound(shutil.move, str(INBOX_DIR / rel),
-                                                           str(ARCHIVE_DIR / rel))
-                                    except OSError:
-                                        pass
-                                    ui.notify(f'{name}: the index could not be updated, skipped.',
-                                              type='negative')
+                                    slog.warning(f"[{username}] Re-ingest: chunk deletion failed, "
+                                                 f"moving the staged file back to the archive")
+                                    if await run.io_bound(_unstage_after_failed_delete, rel):
+                                        ui.notify(f'{name}: the index could not be updated, skipped.',
+                                                  type='negative')
+                                    else:
+                                        slog.error(f"[{username}] Re-ingest rollback failed: a staged "
+                                                   f"file could not be moved back to the archive")
+                                        ui.notify(f'{name}: the index could not be updated and the file '
+                                                  f'could not be moved back. It is still in data_nuovi/; '
+                                                  f'move it back to its archive folder before the next '
+                                                  f'ingestion run, or it will end up in data_duplicati/.',
+                                                  type='negative', timeout=0, close_button=True)
                                     continue
                             staged.append((name, rel))
                             slog.info(f"[{username}] Queued re-ingest: {rel.name}")
