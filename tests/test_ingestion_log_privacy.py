@@ -627,7 +627,7 @@ def test_file_ref_switch_on_appends_shown_value(tmp_path, monkeypatch):
 
 # --- Static guard (design, Test impact) --------------------------------------
 
-GUARDED_FILES = ("ingest.py", "watcher.py", "src/readers.py", "src/utils.py")
+GUARDED_FILES = ("ingest.py", "src/ingest_lock.py", "watcher.py", "src/readers.py", "src/utils.py")
 # Names that hold a client file or folder name, a path below a configured root, or
 # an exception (whose text can quote a path).
 CLIENT_NAMES = {"file_path", "rel_path", "fname", "filename", "folder", "file", "e", "exc", "f"}
@@ -636,7 +636,6 @@ SAFE_CALLS = {"content", "file_ref", "safe_ext", "len", "type"}
 LOG_METHODS = {"debug", "info", "warning", "error", "critical", "exception"}
 # Compliant lines listed in the design: lock file and configuration roots.
 ALLOWED_FUNCTIONS = {
-    ("ingest.py", "release_lock"),
     ("watcher.py", "wait_for_drop_zone"),
     ("watcher.py", "run_watcher"),
     ("src/utils.py", "load_global_triggers"),

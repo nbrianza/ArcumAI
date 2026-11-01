@@ -4,6 +4,15 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _temporary_ingestion_lock(tmp_path, monkeypatch):
+    """_run_ingestion probes this path (#78): never the real lock of the project."""
+    from src.ui import admin
+    monkeypatch.setattr(admin, "_INGEST_LOCK_FILE", tmp_path / "ingestion.lock", raising=False)
+
 
 def test_run_ingestion_returns_output(monkeypatch):
     from src.ui import admin

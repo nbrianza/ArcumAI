@@ -90,7 +90,13 @@ def test_rebuild_option_returns_none_on_empty_collection(monkeypatch, tmp_path):
 
 
 def test_rebuild_option_returns_one_when_lock_is_held(monkeypatch, tmp_path):
+    # A plain file has no holder and counts as stale since #78, so hold a real lock.
+    from src.ingest_lock import release, try_acquire
     ingest = _ingest(monkeypatch, tmp_path)
-    (tmp_path / "ingestion.lock").write_text("LOCKED by a synthetic run", encoding="utf-8")
-    assert ingest.main() == 1
-    assert (tmp_path / "ingestion.lock").exists()
+    held = try_acquire(tmp_path / "ingestion.lock")
+    assert held is not None
+    try:
+        assert ingest.main() == 1
+        assert (tmp_path / "ingestion.lock").exists()
+    finally:
+        release(held)

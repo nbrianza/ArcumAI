@@ -531,6 +531,32 @@ the same reason.
 | 10 | `test_get_db_components_creates_chroma_collection` | ChromaDB client + collection created; `VectorStoreIndex.from_vector_store` called |
 | 11 | `test_get_db_components_collection_starts_empty` | Freshly created collection has `count() == 0` |
 
+### `test_ingest_stale_lock.py`: Stale ingestion lock recovery, issue #78 (101 tests, Windows only)
+
+Real child processes hold the lock through `src/ingest_lock.py`, and are killed or
+started together. Every lock path is under `tmp_path`. `ingest.main()` runs in the
+test process on fake stores; `_run_ingestion` starts a small fake `ingest.py`, because
+the real one as a child needs models. Criterion 10 and the Delete half of criterion 15
+are on the #73 test list.
+
+| Group | Tests | What it checks |
+|-------|-------|----------------|
+| Windows behaviour | `test_s1_*` to `test_s7_*` | Live child refuses and cannot be deleted; lock free after a kill, also with a surviving grandchild; acquire and release across threads; PID text readable and never changed by a contender; takeover keeps the file; takeover in the release gap keeps the new lock |
+| Helper | `test_helper_*`, `test_d2_*`, `test_d8_*` | Standard library only, no logging; `is_held` is advisory and changes nothing; fails closed with no exception; bounded removal retries |
+| C1, C2 | `test_c1_*`, `test_c2_*` | A lock left by a killed run does not block the Admin page or `ingest.main()` |
+| C3 | `test_c3_*` | The run after a real timeout kill is not refused |
+| C4 | `test_c4_*`, `test_release_lock_never_*`, `test_acquire_lock_second_*`, `test_admin_probe_*` | A live run is refused from every entry point at any age, keeps its lock for the whole run, and nothing is staged |
+| C5 | `test_c5_*` | The recorded PID is never used, also when it belongs to a live process |
+| C6 | `test_c6_*` | Concurrent starts: exactly one runs, no overlap under churn |
+| C7 | `test_c7_*` | Any content: recovered with no holder, refused with one, no exception |
+| C8, C14 | `test_c8_*`, `test_c14_*` | One recovery WARNING; no path or file name, switch off and on; exception class only |
+| C9 | `test_c9_*` | Refusal message and warning notification; `Ingestion complete.` only after a run |
+| C11, D9 | `test_c11_*`, `test_design_changelog_*`, `test_d9_*` | Changelog line, upgrade note, ADR 0005 |
+| C12 | `test_c12_*` | No lock left over 20 normal runs |
+| C13 | `test_c13_*` | A scanner holding the file does not refuse the next run |
+| C15 | `test_c15_*` | Server stopped during a run: next run not refused; a surviving child keeps the lock |
+| `--rebuild-bm25` | `test_rebuild_option_*` | Same lock: stale recovered, live holder gives exit code 1 and no write, held for the whole rebuild |
+
 ---
 
 ## Known limitations / non-goals

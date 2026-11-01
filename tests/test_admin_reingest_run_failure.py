@@ -25,6 +25,13 @@ class _RecordingLog:
     info = warning = error = debug = exception = _record
 
 
+@pytest.fixture(autouse=True)
+def _temporary_ingestion_lock(tmp_path, monkeypatch):
+    """_run_ingestion probes this path (#78): never the real lock of the project."""
+    from src.ui import admin
+    monkeypatch.setattr(admin, "_INGEST_LOCK_FILE", tmp_path / "ingestion.lock", raising=False)
+
+
 @pytest.fixture
 def dirs(tmp_path, monkeypatch):
     from src.ui import admin
