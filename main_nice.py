@@ -41,7 +41,7 @@ from src.config import (
     WS_API_KEY,
     SSL_CERTFILE, SSL_KEYFILE, TLS_TERMINATED_UPSTREAM,
 )
-from src.tls import build_ssl_kwargs, warn_if_unencrypted
+from src.tls import build_ssl_kwargs, session_cookie_kwargs, warn_if_unencrypted
 from src.auth import load_users, verify_password, check_login, ws_auth_is_rate_limited, ws_auth_record_failure
 from src.engine import UserSession
 from src.logger import server_log as slog, warn_if_content_logging
@@ -334,4 +334,6 @@ if __name__ in {"__main__", "__mp_main__"}:
     warn_if_unencrypted(host, port, bool(ssl_kwargs), TLS_TERMINATED_UPSTREAM, slog)
 
     ui.run(title='Arcum AI', host=host, port=port, favicon='🛡️', reload=False,
-           storage_secret=storage_secret, **ssl_kwargs)
+           storage_secret=storage_secret,
+           session_middleware_kwargs=session_cookie_kwargs(bool(ssl_kwargs), TLS_TERMINATED_UPSTREAM),
+           **ssl_kwargs)
