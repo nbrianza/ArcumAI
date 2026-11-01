@@ -137,6 +137,16 @@ python ingest.py
 
 **Chat answers follow the same rule.** RAG retrieval (web chat and Outlook replies) gives non-admin users only text from documents they own; ADMIN users retrieve from every document. Visibility follows the folder recorded when the document was ingested, not its current location in the archive. No re-indexing is needed for documents that were already under `<username>/` when ingested. To make another indexed document visible to its owner: delete it from the index on the Admin page, place it in `input_utente\<username>\`, and let the watcher ingest it (or run `.venv\Scripts\python ingest.py`). Do not use "Re-ingest selected" for this until issue #46 is fixed, because it moves the document to the archive root (ADMIN-only). See `doc/decisions/0004-rag-retrieval-follows-document-ownership.md`.
 
+**Rebuilding the keyword index (upgrade step).** Installations that ingested documents before issue #71 was fixed have a BM25 keyword index that makes the same chunk appear twice in hybrid search results. Rebuild it once from the database (no LLM call; the inbox is not processed; if another ingestion is running it does nothing and exits with code 1), then restart the server, because open sessions keep the old index in memory:
+
+```powershell
+Set-Location C:\ArcumAI
+.venv\Scripts\python ingest.py --rebuild-bm25
+if ($LASTEXITCODE -ne 0) { Write-Error "BM25 rebuild failed" }
+```
+
+The index is also rebuilt automatically after every ingestion that archives at least one file.
+
 ### 4. Start the server
 
 ```bash

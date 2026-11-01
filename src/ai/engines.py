@@ -48,6 +48,37 @@ class OwnerFilteredRetriever(BaseRetriever):
         return self._allowed(await self._inner.aretrieve(query_bundle))
 
 
+class _BM25FailSafeRetriever(BaseRetriever):
+    """Wraps the BM25 retriever so a query-time error does not fail the answer (#71).
+
+    On any exception it logs one warning naming only the exception class (no
+    query, chunk text, file name or path) and returns no BM25 results, so the
+    fusion answers from vector retrieval alone.
+    """
+
+    def __init__(self, inner: BaseRetriever):
+        self._inner = inner
+        super().__init__()
+
+    @staticmethod
+    def _warn(e: Exception) -> List[NodeWithScore]:
+        slog.warning("BM25 retrieval failed (%s); answering from vector retrieval only",
+                     type(e).__name__)
+        return []
+
+    def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+        try:
+            return self._inner.retrieve(query_bundle)
+        except Exception as e:
+            return self._warn(e)
+
+    async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+        try:
+            return await self._inner.aretrieve(query_bundle)
+        except Exception as e:
+            return self._warn(e)
+
+
 class _EmptyRetriever(BaseRetriever):
     """Retriever for a non-admin user who may read no indexed document."""
 
@@ -103,23 +134,28 @@ def build_rag_retriever(username: str | None, role: str):
     if BM25_PATH.exists():
         try:
             bm25_retriever = BM25Retriever.from_persist_dir(str(BM25_PATH))
-            bm25_retriever.similarity_top_k = RETRIEVER_TOP_K
-            if filtered:
-                allowed = set(allowed_paths)
-                bm25_retriever.corpus_weight_mask = [
-                    1 if entry.get("file_path") in allowed else 0
-                    for entry in bm25_retriever.corpus
-                ]
-                bm25_retriever = OwnerFilteredRetriever(bm25_retriever, username, role)
-            retriever = QueryFusionRetriever(
-                [vector_retriever, bm25_retriever],
-                similarity_top_k=RETRIEVER_TOP_K,
-                num_queries=1,
-                mode="reciprocal_rerank",
-                use_async=False, verbose=True
-            )
+            # bm25s raises if asked for more results than indexed chunks (#71)
+            indexed = int(bm25_retriever.bm25.scores.get("num_docs", 0))
+            if indexed > 0:
+                bm25_retriever.similarity_top_k = min(RETRIEVER_TOP_K, indexed)
+                if filtered:
+                    allowed = set(allowed_paths)
+                    bm25_retriever.corpus_weight_mask = [
+                        1 if entry.get("file_path") in allowed else 0
+                        for entry in bm25_retriever.corpus
+                    ]
+                bm25_retriever = _BM25FailSafeRetriever(bm25_retriever)
+                if filtered:
+                    bm25_retriever = OwnerFilteredRetriever(bm25_retriever, username, role)
+                retriever = QueryFusionRetriever(
+                    [vector_retriever, bm25_retriever],
+                    similarity_top_k=RETRIEVER_TOP_K,
+                    num_queries=1,
+                    mode="reciprocal_rerank",
+                    use_async=False, verbose=True
+                )
         except Exception as e:
-            slog.warning(f"BM25 load failed, using vector-only retriever: {e}")
+            slog.warning("BM25 load failed (%s), using vector-only retriever", type(e).__name__)
     return retriever
 
 
