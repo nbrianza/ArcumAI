@@ -21,9 +21,16 @@ from src.config import (
     COLLECTION_NAME, DB_PATH, INGEST_TIMEOUT_SEC,
 )
 from src.documents import resolve_archive_path
+from src.ingest_lock import is_held
 from src.logger import server_log as slog, content, safe_ext
 
 _ingestion_lock = threading.Lock()
+_INGEST_LOCK_FILE = BASE_DIR / "ingestion.lock"
+_ALREADY_RUNNING = "An ingestion is already running. Try again when it has finished."
+# How the outcomes other than a finished run read in the output of _run_ingestion.
+_NOT_FINISHED_PREFIXES = ("Ingestion stopped:", "Ingestion could not be started")
+_CHILD_REFUSED_LINE = "Ingestion already running"  # ingest.py lost the race after the probe
+_CHILD_CRASHED_LINE = "CRASH MAIN"  # ingest.py logs it and still exits with 0
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +157,13 @@ def _run_ingestion(target_path: str | None = None) -> str:
     ingest.py processes would write to the same ChromaDB/BM25 stores.
     """
     if not _ingestion_lock.acquire(blocking=False):
-        return "An ingestion is already running. Try again when it has finished."
+        return _ALREADY_RUNNING
     try:
+        # A run from the watcher or by hand holds the file lock. Advisory: ingest.py
+        # makes the authoritative decision, this only avoids starting a child.
+        if is_held(_INGEST_LOCK_FILE):
+            return _ALREADY_RUNNING
+
         # If re-ingesting a single file, move it back to the inbox in its folder
         if target_path:
             src = Path(target_path).resolve()
@@ -182,6 +194,20 @@ def _run_ingestion(target_path: str | None = None) -> str:
         return (result.stdout + "\n" + result.stderr).strip()
     finally:
         _ingestion_lock.release()
+
+
+def _ingestion_notification(output: str) -> tuple[str, str]:
+    """Text and NiceGUI type of the notification after _run_ingestion returned output.
+
+    'Ingestion complete.' only after a run that finished (owner decision on #78).
+    The output is all that _run_ingestion returns, so the exit code of the child is
+    not visible here (#81).
+    """
+    if output == _ALREADY_RUNNING or _CHILD_REFUSED_LINE in output:
+        return _ALREADY_RUNNING, 'warning'
+    if output.startswith(_NOT_FINISHED_PREFIXES) or _CHILD_CRASHED_LINE in output:
+        return 'Ingestion did not finish. See the ingestion log for details.', 'negative'
+    return 'Ingestion complete.', 'positive'
 
 
 def _low_priority_kwargs() -> dict:
@@ -407,7 +433,8 @@ def create_admin_page():
                     output = await run.io_bound(_run_ingestion)
                     log_output.value = output
                     log_output.classes(remove='hidden')
-                    ui.notify('Ingestion complete.', type='positive')
+                    text, kind = _ingestion_notification(output)
+                    ui.notify(text, type=kind)
                     await refresh_table()
 
                 ui.button('Ingest all data_nuovi/', icon='upload_file', on_click=ingest_all).props(

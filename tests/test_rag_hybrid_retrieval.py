@@ -439,11 +439,17 @@ def test_ac5_rebuild_option_respects_ingestion_lock(env, monkeypatch):
     _legacy_bm25(collection, env.bm25_path)
     before = {p.name: p.read_bytes() for p in env.bm25_path.iterdir() if p.is_file()}
     run = _Ingest(env, monkeypatch, ["ingest.py", "--rebuild-bm25"])
-    run.lock.write_text("LOCKED by a synthetic concurrent run", encoding="utf-8")
-    run.run()
-    after = {p.name: p.read_bytes() for p in env.bm25_path.iterdir() if p.is_file()}
-    assert after == before, "BM25 index written while another ingestion held the lock"
-    assert run.lock.exists(), "the lock of the other run was removed"
+    # A plain file has no holder and counts as stale since #78, so hold a real lock.
+    from src.ingest_lock import release, try_acquire
+    held = try_acquire(run.lock)
+    assert held is not None
+    try:
+        run.run()
+        after = {p.name: p.read_bytes() for p in env.bm25_path.iterdir() if p.is_file()}
+        assert after == before, "BM25 index written while another ingestion held the lock"
+        assert run.lock.exists(), "the lock of the other run was removed"
+    finally:
+        release(held)
 
 
 def test_ac6_ingestion_that_archives_files_writes_deduplicated_bm25(env, monkeypatch):
