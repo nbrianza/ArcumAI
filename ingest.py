@@ -15,6 +15,7 @@ import chromadb
 from tqdm import tqdm  # Progress bar
 
 # Internal Modules
+from src import ingest_lock
 from src.readers import SmartPDFReader, MyOutlookReader, MyEmlReader
 import src.logger as _logger
 from src.logger import log, content
@@ -33,22 +34,32 @@ from src.utils import (
     rebuild_bm25_index
 )
 
-# --- LOCK FILE CONFIG (WINDOWS SAFE) ---
+# --- LOCK FILE CONFIG (see src/ingest_lock.py and ADR 0005) ---
 LOCK_FILE = Path(__file__).parent / "ingestion.lock"
+_held_lock = None
 
 def acquire_lock():
-    try:
-        with open(LOCK_FILE, 'x') as f:
-            f.write(f"LOCKED by PID {os.getpid()}")
-        return True
-    except FileExistsError:
+    global _held_lock
+    held = ingest_lock.try_acquire(LOCK_FILE)
+    if held is None:
         return False
+    _held_lock = held
+    if held.stale_age_sec is not None:
+        log.warning(f"Recovered a stale ingestion lock (age {held.stale_age_sec}s)")
+    return True
 
 def release_lock():
+    """Removes only a lock this process holds. Never raises: main() calls it in finally."""
+    global _held_lock
+    held, _held_lock = _held_lock, None
+    if held is None:
+        return
     try:
-        if LOCK_FILE.exists(): LOCK_FILE.unlink()
+        reason = ingest_lock.release(held)
     except Exception as e:
-        log.warning(f"⚠️ Unable to remove lock file: {e}")
+        reason = type(e).__name__
+    if reason:
+        log.warning(f"Lock not removed ({reason}); the next run will recover it")
 
 init_settings()
 
