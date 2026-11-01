@@ -132,7 +132,11 @@ def main():
             try:
                 BM25_PATH.mkdir(parents=True, exist_ok=True)
                 _index, collection = get_db_components()
-                rebuild_bm25_index(collection, BM25_PATH, nodes_loader=get_all_nodes_from_chroma)
+                count = rebuild_bm25_index(collection, BM25_PATH, nodes_loader=get_all_nodes_from_chroma)
+                if count == 0 and collection.count() > 0:
+                    # get_all_nodes_from_chroma returns [] when reading fails
+                    log.error("❌ BM25 Error: chunks could not be read from the database; index not rebuilt.")
+                    return 1
             except Exception as e:
                 log.error(f"❌ BM25 Error: {content(str(e), type(e).__name__)}")
                 return 1

@@ -56,6 +56,39 @@ def test_rebuild_option_returns_one_on_failure_and_releases_lock(monkeypatch, tm
     assert not (tmp_path / "ingestion.lock").exists()
 
 
+class _UnreadableCollection:
+    """Synthetic collection: holds chunks, but reading them fails."""
+
+    def get(self, *args, **kwargs):
+        raise RuntimeError("synthetic read failure")
+
+    def count(self):
+        return 3
+
+
+def test_rebuild_option_returns_one_when_chunks_cannot_be_read(monkeypatch, tmp_path):
+    # Tester finding D-1 on PR #77: get_all_nodes_from_chroma swallows the read
+    # error and returns [], so the rebuild returned 0 and the option exited 0.
+    from src.utils import get_all_nodes_from_chroma
+    ingest = _ingest(monkeypatch, tmp_path)
+    monkeypatch.setattr(ingest, "get_all_nodes_from_chroma", get_all_nodes_from_chroma)
+    monkeypatch.setattr(ingest, "get_db_components", lambda: (None, _UnreadableCollection()))
+    assert ingest.main() == 1
+    assert not (tmp_path / "bm25" / "retriever.json").exists()
+    assert not (tmp_path / "ingestion.lock").exists()
+
+
+def test_rebuild_option_returns_none_on_empty_collection(monkeypatch, tmp_path):
+    class _Empty:
+        def count(self):
+            return 0
+
+    ingest = _ingest(monkeypatch, tmp_path)
+    monkeypatch.setattr(ingest, "get_all_nodes_from_chroma", lambda _c: [])
+    monkeypatch.setattr(ingest, "get_db_components", lambda: (None, _Empty()))
+    assert ingest.main() is None
+
+
 def test_rebuild_option_returns_one_when_lock_is_held(monkeypatch, tmp_path):
     ingest = _ingest(monkeypatch, tmp_path)
     (tmp_path / "ingestion.lock").write_text("LOCKED by a synthetic run", encoding="utf-8")

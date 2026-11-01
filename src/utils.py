@@ -155,7 +155,7 @@ def rebuild_bm25_index(chroma_collection, bm25_path, *, nodes_loader=None) -> in
     loader = nodes_loader or get_all_nodes_from_chroma
     all_nodes = loader(chroma_collection)
     if not all_nodes:
-        log.info("   BM25 index not rebuilt: 0 chunks in the collection.")
+        log.info("   BM25 index not rebuilt: 0 chunks read from the database.")
         return 0
     bm25 = BM25Retriever.from_defaults(
         nodes=all_nodes,
