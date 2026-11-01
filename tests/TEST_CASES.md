@@ -557,6 +557,26 @@ are on the #73 test list.
 | C15 | `test_c15_*` | Server stopped during a run: next run not refused; a surviving child keeps the lock |
 | `--rebuild-bm25` | `test_rebuild_option_*` | Same lock: stale recovered, live holder gives exit code 1 and no write, held for the whole rebuild |
 
+### `test_ingest_lock_handle.py`: The lock handle does not reach a child, issue #78 (3 tests, Windows only)
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_lock_descriptor_is_not_inheritable` | The descriptor of a held lock is not inheritable |
+| 2 | `test_surviving_grandchild_does_not_keep_the_file_open` | After a kill, a grandchild started with handle inheritance does not block the removal in the next run |
+| 3 | `test_control_an_inherited_handle_would_block_the_removal` | Control: with the descriptor made inheritable on purpose, the removal fails |
+
+### `test_admin_ingestion_notification.py`: `Ingestion complete.` only after a finished run, owner decision on #78 (7 tests)
+
+| # | Test | What it checks |
+|---|------|----------------|
+| 1 | `test_timeout_does_not_notify_complete` | Output of a real `_run_ingestion` timeout path gives a negative notification |
+| 2 | `test_failed_start_does_not_notify_complete` | Same for a child that cannot be started |
+| 3 | `test_child_refused_in_the_gap_after_the_probe_does_not_notify_complete` | A child that refuses after the probe gives a warning |
+| 4 | `test_refusal_by_the_probe_does_not_notify_complete` | The refusal message gives a warning |
+| 5 | `test_crash_logged_by_the_child_does_not_notify_complete` | A crash logged by a child that exits with 0 gives a negative notification |
+| 6 | `test_finished_run_notifies_complete` | A finished run gives `Ingestion complete.` |
+| 7 | `test_child_lines_match_what_ingest_py_logs` | The two markers still occur in `ingest.py` |
+
 ---
 
 ## Known limitations / non-goals
