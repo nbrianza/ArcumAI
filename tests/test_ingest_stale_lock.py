@@ -1220,9 +1220,8 @@ def test_c8_recovery_after_a_real_kill_logs_exactly_one_warning(ingest_env, lab,
     assert len(ingest_env.records.warnings()) == 1
 
 
-def test_c8_contenders_for_one_stale_lock_log_at_most_one_recovery(ingest_env, lab):
-    # Only the winner logs (design, Risks). The contender here is refused and logs
-    # the existing refusal line only.
+def test_c8_refused_run_logs_no_recovery_line(ingest_env, lab):
+    # Only the winner logs a recovery (design, Risks).
     holder = lab.holder(ingest_env.lock)
     assert ingest_env.module.acquire_lock() is False
     assert _stale_lines(ingest_env.records) == []
